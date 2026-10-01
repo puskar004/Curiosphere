@@ -2,6 +2,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import type {
   AttendanceAttendee,
   AttendanceRecord,
+  ChapterAssignment,
   ClassAlert,
   Classroom,
   LiveSession,
@@ -33,6 +34,9 @@ function lightClassroom(c: Classroom): Classroom {
     const students = Array.isArray(c?.students) ? c.students : [];
     const alerts = Array.isArray(c?.alerts) ? c.alerts : [];
     const attendanceLog = Array.isArray(c?.attendanceLog) ? c.attendanceLog : [];
+    const chapterAssignments = Array.isArray(c?.chapterAssignments)
+      ? c.chapterAssignments
+      : [];
     const sess = c?.liveSession;
     return {
       code: String(c?.code || "").toUpperCase(),
@@ -126,6 +130,19 @@ function lightClassroom(c: Classroom): Classroom {
               kickReasons: sess.kickReasons || {},
             }
           : null,
+      chapterAssignments: chapterAssignments.slice(0, 60).map((a) => ({
+        id: String(a.id || ""),
+        subjectId: String(a.subjectId || ""),
+        subjectName: String(a.subjectName || ""),
+        chapterId: String(a.chapterId || ""),
+        chapterNumber: Number(a.chapterNumber) || 0,
+        chapterTitle: String(a.chapterTitle || ""),
+        grade: String(a.grade || "12"),
+        deadline: String(a.deadline || ""),
+        assignedAt: Number(a.assignedAt) || Date.now(),
+        updatedAt: a.updatedAt ? Number(a.updatedAt) : undefined,
+        note: a.note ? String(a.note).slice(0, 200) : undefined,
+      })),
     };
   } catch {
     return {
@@ -139,6 +156,7 @@ function lightClassroom(c: Classroom): Classroom {
       alerts: [],
       attendanceLog: [],
       liveSession: null,
+      chapterAssignments: [],
     };
   }
 }
@@ -757,15 +775,32 @@ export async function listTeacherClassrooms(
         }
       });
 
-    // Overlay shared live index so teacher panel matches what students see
+    // Overlay shared live index and assignments so teacher panel matches what students see
     try {
-      const { getClassLive } = await import("@/lib/class-code-index");
+      const { getClassLive, getClassAssignments } = await import(
+        "@/lib/class-code-index"
+      );
       return await Promise.all(
         mapped.map(async (room) => {
+          let assignList = room.chapterAssignments || [];
+          try {
+            const indexed = await getClassAssignments(room.code);
+            if (indexed && indexed.length > 0) {
+              assignList = indexed;
+            }
+          } catch {
+            // ignore
+          }
+
+          const baseRoom = {
+            ...room,
+            chapterAssignments: assignList,
+          };
+
           const shared = await getClassLive(room.code);
           if (shared?.active) {
             return {
-              ...room,
+              ...baseRoom,
               liveSession: {
                 id: shared.id,
                 title: shared.title,
@@ -787,12 +822,12 @@ export async function listTeacherClassrooms(
           // Shared says no live — only clear if Clerk also has no active live
           if (!shared && room.liveSession?.active) {
             // Keep Clerk/cache active live (shared read miss should not kill teacher UI)
-            return room;
+            return baseRoom;
           }
           if (shared === null && !room.liveSession?.active) {
-            return { ...room, liveSession: null };
+            return { ...baseRoom, liveSession: null };
           }
-          return room;
+          return baseRoom;
         })
       );
     } catch {
@@ -1162,6 +1197,7 @@ export async function listStudentClassrooms(userId: string): Promise<
     materials: TeacherMaterial[];
     liveSession: Classroom["liveSession"];
     alerts: ClassAlert[];
+    chapterAssignments: ChapterAssignment[];
     kicked?: boolean;
     kickReason?: string;
   }[]
@@ -1176,6 +1212,7 @@ export async function listStudentClassrooms(userId: string): Promise<
     materials: TeacherMaterial[];
     liveSession: Classroom["liveSession"];
     alerts: ClassAlert[];
+    chapterAssignments: ChapterAssignment[];
     kicked?: boolean;
     kickReason?: string;
   }[] = [];
@@ -1201,6 +1238,7 @@ export async function listStudentClassrooms(userId: string): Promise<
         materials: [],
         liveSession: null,
         alerts: [],
+        chapterAssignments: [],
       });
       continue;
     }
@@ -1299,6 +1337,16 @@ export async function listStudentClassrooms(userId: string): Promise<
         (m) => m && m.url && String(m.url).trim().length > 0
       );
     }
+    let assignments: ChapterAssignment[] =
+      found.classroom.chapterAssignments || [];
+    try {
+      const { getClassAssignments } = await import("@/lib/class-code-index");
+      const indexed = await getClassAssignments(code);
+      if (indexed?.length) assignments = indexed;
+    } catch {
+      // ignore
+    }
+
     out.push({
       code: found.classroom.code,
       name: found.classroom.name || `Class ${code}`,
@@ -1314,6 +1362,7 @@ export async function listStudentClassrooms(userId: string): Promise<
             }
           : null,
       alerts: found.classroom.alerts || [],
+      chapterAssignments: assignments,
       kicked,
       kickReason:
         kicked && userId
@@ -2286,4 +2335,163 @@ export async function getStudentJoinedCode(
 export async function getStudentJoinedCodes(userId: string): Promise<string[]> {
   const meta = await getTeacherMeta(userId);
   return codesOf(meta);
+}
+
+export async function assignChapterToClass(
+  teacherId: string,
+  code: string,
+  data: {
+    subjectId: string;
+    subjectName: string;
+    chapterId: string;
+    chapterNumber: number;
+    chapterTitle: string;
+    grade: string;
+    deadline: string;
+    note?: string;
+  }
+): Promise<ChapterAssignment | null> {
+  const norm = code.toUpperCase();
+  const assignment: ChapterAssignment = {
+    id: `assign-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    subjectId: data.subjectId,
+    subjectName: data.subjectName,
+    chapterId: data.chapterId,
+    chapterNumber: data.chapterNumber,
+    chapterTitle: data.chapterTitle,
+    grade: data.grade,
+    deadline: data.deadline,
+    assignedAt: Date.now(),
+    note: data.note,
+  };
+
+  await updateClassroom(teacherId, norm, (c) => {
+    const prev = (c.chapterAssignments || []).filter(
+      (a) => a.chapterId !== data.chapterId
+    );
+    return {
+      ...c,
+      chapterAssignments: [assignment, ...prev],
+    };
+  });
+
+  try {
+    const { publishChapterAssignments, getClassAssignments } = await import(
+      "@/lib/class-code-index"
+    );
+    const existing = await getClassAssignments(norm);
+    const filtered = existing.filter((a) => a.chapterId !== data.chapterId);
+    await publishChapterAssignments(norm, [assignment, ...filtered]);
+  } catch (e) {
+    console.error("publishChapterAssignments error", e);
+  }
+
+  return assignment;
+}
+
+export async function updateChapterDeadline(
+  teacherId: string,
+  code: string,
+  chapterId: string,
+  newDeadline: string,
+  note?: string
+): Promise<ChapterAssignment | null> {
+  const norm = code.toUpperCase();
+  let updatedAssign: ChapterAssignment | null = null;
+
+  await updateClassroom(teacherId, norm, (c) => {
+    const list = (c.chapterAssignments || []).map((a) => {
+      if (a.chapterId === chapterId || a.id === chapterId) {
+        updatedAssign = {
+          ...a,
+          deadline: newDeadline,
+          note: note !== undefined ? note : a.note,
+          updatedAt: Date.now(),
+        };
+        return updatedAssign;
+      }
+      return a;
+    });
+    return {
+      ...c,
+      chapterAssignments: list,
+    };
+  });
+
+  try {
+    const { publishChapterAssignments, getClassAssignments } = await import(
+      "@/lib/class-code-index"
+    );
+    const existing = await getClassAssignments(norm);
+    const list = existing.map((a) => {
+      if (a.chapterId === chapterId || a.id === chapterId) {
+        return {
+          ...a,
+          deadline: newDeadline,
+          note: note !== undefined ? note : a.note,
+          updatedAt: Date.now(),
+        };
+      }
+      return a;
+    });
+    await publishChapterAssignments(norm, list);
+    if (!updatedAssign) {
+      updatedAssign =
+        list.find((a) => a.chapterId === chapterId || a.id === chapterId) ||
+        null;
+    }
+  } catch (e) {
+    console.error("publishChapterAssignments error", e);
+  }
+
+  return updatedAssign;
+}
+
+export async function removeChapterAssignment(
+  teacherId: string,
+  code: string,
+  chapterId: string
+): Promise<boolean> {
+  const norm = code.toUpperCase();
+  await updateClassroom(teacherId, norm, (c) => ({
+    ...c,
+    chapterAssignments: (c.chapterAssignments || []).filter(
+      (a) => a.chapterId !== chapterId && a.id !== chapterId
+    ),
+  }));
+
+  try {
+    const { publishChapterAssignments, getClassAssignments } = await import(
+      "@/lib/class-code-index"
+    );
+    const existing = await getClassAssignments(norm);
+    const next = existing.filter(
+      (a) => a.chapterId !== chapterId && a.id !== chapterId
+    );
+    await publishChapterAssignments(norm, next);
+  } catch (e) {
+    console.error("removeChapterAssignment index error", e);
+  }
+
+  return true;
+}
+
+export async function getAssignmentsForClass(
+  code: string
+): Promise<ChapterAssignment[]> {
+  const norm = code.toUpperCase();
+  try {
+    const { getClassAssignments } = await import("@/lib/class-code-index");
+    const indexed = await getClassAssignments(norm);
+    if (indexed && indexed.length > 0) return indexed;
+  } catch {
+    // fallback
+  }
+
+  try {
+    const found = await findClassroomByCode(norm);
+    return found?.classroom.chapterAssignments || [];
+  } catch {
+    return [];
+  }
 }

@@ -4,14 +4,20 @@ import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  AlertCircle,
   Atom,
   BookOpen,
+  CalendarCheck,
   ChevronRight,
+  Clock,
   FlaskConical,
+  GraduationCap,
   Leaf,
+  Lock,
   Search,
   Sigma,
   Sparkles,
+  Unlock,
 } from "lucide-react";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { CURRICULUM, type Grade, type Subject } from "@/lib/curriculum";
@@ -20,6 +26,7 @@ import {
   markChapterOpened,
   saveProgress,
 } from "@/lib/user-store";
+import type { ChapterAssignment } from "@/lib/classroom-types";
 import PdfReaderModal from "@/components/PdfReaderModal";
 import { cn } from "@/lib/utils";
 
@@ -122,6 +129,8 @@ function SubjectCard({
   onOpenPdf,
   expanded,
   onToggle,
+  assignmentsMap,
+  hasAssignments,
 }: {
   subject: Subject;
   grade: Grade;
@@ -129,6 +138,8 @@ function SubjectCard({
   onOpenPdf: (title: string, link?: string, chapterId?: string) => void;
   expanded: boolean;
   onToggle: () => void;
+  assignmentsMap?: Record<string, ChapterAssignment>;
+  hasAssignments?: boolean;
 }) {
   const theme = SUBJECT_THEME[subject.id] || SUBJECT_THEME.default;
   const Icon = theme.Icon;
@@ -185,13 +196,21 @@ function SubjectCard({
       <ul className="mt-4 space-y-1.5">
         {preview.map((ch) => {
           const isOpen = opened.has(ch.id);
+          const assignment = assignmentsMap?.[ch.id];
+          const isAssigned = Boolean(assignment);
+          const isLocked = Boolean(hasAssignments && !isAssigned);
+
+          const todayStr = new Date().toISOString().split("T")[0];
+          const isOverdue = assignment ? assignment.deadline < todayStr : false;
+          const isDueToday = assignment ? assignment.deadline === todayStr : false;
+
           return (
             <li
               key={ch.id}
               className={cn(
                 "sl-row flex flex-wrap items-center gap-2 rounded-xl border border-transparent px-2.5 py-2",
                 theme.soft,
-                "hover:border-white hover:shadow-sm"
+                isLocked ? "opacity-75 bg-slate-50/50" : "hover:border-white hover:shadow-sm"
               )}
             >
               <div className="min-w-0 flex-1">
@@ -211,33 +230,73 @@ function SubjectCard({
                 <div className="truncate text-[11px] text-slate-400">
                   {ch.topics.slice(0, 3).join(" · ")}
                 </div>
+
+                {/* Teacher Deadline or Lock Status */}
+                {isAssigned && assignment && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {isOverdue ? (
+                      <span className="inline-flex items-center gap-1 rounded bg-rose-100/90 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">
+                        <AlertCircle className="h-2.5 w-2.5" /> Due: {assignment.deadline} (Overdue)
+                      </span>
+                    ) : isDueToday ? (
+                      <span className="inline-flex items-center gap-1 rounded bg-amber-100/90 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
+                        <Clock className="h-2.5 w-2.5" /> Due Today ({assignment.deadline})
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded bg-emerald-100/90 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">
+                        <CalendarCheck className="h-2.5 w-2.5" /> Due: {assignment.deadline}
+                      </span>
+                    )}
+                    {assignment.note && (
+                      <span className="truncate text-[10px] text-slate-500 italic">
+                        · {assignment.note}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {isLocked && (
+                  <div className="mt-1 flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-200/80 px-1.5 py-0.5 text-[9px] font-bold text-slate-500">
+                      <Lock className="h-2.5 w-2.5" /> Locked by teacher
+                    </span>
+                  </div>
+                )}
               </div>
+
               <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() =>
-                    onOpenPdf(
-                      `Class ${grade} ${subject.name} · Ch ${ch.number} ${ch.title}`,
-                      ch.ncertPdf,
-                      ch.id
-                    )
-                  }
-                  className="rounded-lg bg-emerald-100/90 px-2 py-1 text-[10px] font-bold text-emerald-700 transition hover:bg-emerald-500 hover:text-white"
-                >
-                  PDF
-                </button>
-                <Link
-                  href={`/pyq?grade=${grade}&subject=${subject.id}`}
-                  className="rounded-lg bg-sky-100/90 px-2 py-1 text-[10px] font-bold text-sky-700 transition hover:bg-sky-500 hover:text-white"
-                >
-                  PYQs
-                </Link>
-                <Link
-                  href={`/quiz/${ch.id}`}
-                  className="rounded-lg bg-rose-100/90 px-2 py-1 text-[10px] font-bold text-rose-700 transition hover:bg-rose-500 hover:text-white"
-                >
-                  Quiz
-                </Link>
+                {isLocked ? (
+                  <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-400 cursor-not-allowed">
+                    Locked
+                  </span>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenPdf(
+                          `Class ${grade} ${subject.name} · Ch ${ch.number} ${ch.title}`,
+                          ch.ncertPdf,
+                          ch.id
+                        )
+                      }
+                      className="rounded-lg bg-emerald-100/90 px-2 py-1 text-[10px] font-bold text-emerald-700 transition hover:bg-emerald-500 hover:text-white"
+                    >
+                      PDF
+                    </button>
+                    <Link
+                      href={`/pyq?grade=${grade}&subject=${subject.id}`}
+                      className="rounded-lg bg-sky-100/90 px-2 py-1 text-[10px] font-bold text-sky-700 transition hover:bg-sky-500 hover:text-white"
+                    >
+                      PYQs
+                    </Link>
+                    <Link
+                      href={`/quiz/${ch.id}`}
+                      className="rounded-lg bg-rose-100/90 px-2 py-1 text-[10px] font-bold text-rose-700 transition hover:bg-rose-500 hover:text-white"
+                    >
+                      Quiz
+                    </Link>
+                  </>
+                )}
               </div>
             </li>
           );
@@ -275,6 +334,59 @@ function NcertInner() {
     link?: string;
   } | null>(null);
 
+  const [classrooms, setClassrooms] = useState<
+    Array<{
+      code: string;
+      name: string;
+      teacherName: string;
+      chapterAssignments?: ChapterAssignment[];
+    }>
+  >([]);
+  const [onlyAssigned, setOnlyAssigned] = useState<boolean>(true);
+
+  useEffect(() => {
+    let unmounted = false;
+    async function loadJoined() {
+      try {
+        const res = await fetch("/api/classroom?action=joined");
+        const data = await res.json();
+        if (!unmounted && data.ok && Array.isArray(data.classrooms)) {
+          setClassrooms(data.classrooms);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    loadJoined();
+    return () => {
+      unmounted = true;
+    };
+  }, []);
+
+  const allAssignments = useMemo(() => {
+    const list: ChapterAssignment[] = [];
+    const seen = new Set<string>();
+    for (const c of classrooms) {
+      for (const a of c.chapterAssignments || []) {
+        if (a && a.chapterId && !seen.has(a.chapterId)) {
+          seen.add(a.chapterId);
+          list.push(a);
+        }
+      }
+    }
+    return list;
+  }, [classrooms]);
+
+  const assignmentsMap = useMemo(() => {
+    const map: Record<string, ChapterAssignment> = {};
+    for (const a of allAssignments) {
+      map[a.chapterId] = a;
+    }
+    return map;
+  }, [allAssignments]);
+
+  const hasAssignments = allAssignments.length > 0;
+
   const pack = useMemo(
     () => CURRICULUM.find((g) => g.grade === grade)!,
     [grade]
@@ -293,7 +405,15 @@ function NcertInner() {
   }, [userId]);
 
   const subjects = useMemo(() => {
-    const list = pack.subjects;
+    let list = pack.subjects;
+    if (hasAssignments && onlyAssigned) {
+      list = list
+        .map((s) => ({
+          ...s,
+          chapters: s.chapters.filter((c) => Boolean(assignmentsMap[c.id])),
+        }))
+        .filter((s) => s.chapters.length > 0);
+    }
     if (!q.trim()) return list;
     const needle = q.toLowerCase();
     return list
@@ -307,7 +427,7 @@ function NcertInner() {
         ),
       }))
       .filter((s) => s.chapters.length > 0);
-  }, [pack, q]);
+  }, [pack, q, hasAssignments, onlyAssigned, assignmentsMap]);
 
   const totalCh = pack.subjects.reduce((n, s) => n + s.chapters.length, 0);
   const openedCount = pack.subjects.reduce(
@@ -381,6 +501,53 @@ function NcertInner() {
         </p>
       </div>
 
+      {/* Teacher Assigned Chapters Alert Banner */}
+      {hasAssignments && (
+        <div className="mt-6 rounded-3xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 via-violet-50/90 to-purple-50/90 p-4 sm:p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-md shadow-indigo-500/20">
+                <GraduationCap className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xs font-black uppercase tracking-wider text-indigo-950">
+                  Teacher Assigned Chapters ({allAssignments.length} Unlocked)
+                </h2>
+                <p className="text-xs text-slate-600">
+                  Your teacher has scheduled specific chapters with completion deadlines for your class.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white p-1 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setOnlyAssigned(true)}
+                className={cn(
+                  "rounded-full px-3.5 py-1.5 text-xs font-bold transition",
+                  onlyAssigned
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "text-slate-600 hover:text-indigo-600"
+                )}
+              >
+                Assigned Only ({allAssignments.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setOnlyAssigned(false)}
+                className={cn(
+                  "rounded-full px-3.5 py-1.5 text-xs font-bold transition",
+                  !onlyAssigned
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "text-slate-600 hover:text-indigo-600"
+                )}
+              >
+                All Chapters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <div className="flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
@@ -440,6 +607,8 @@ function NcertInner() {
                 setExpanded((e) => ({ ...e, [s.id]: !e[s.id] }))
               }
               onOpenPdf={openPdf}
+              assignmentsMap={assignmentsMap}
+              hasAssignments={hasAssignments}
             />
           ))}
           {subjects.length === 0 && (

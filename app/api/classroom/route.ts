@@ -2,10 +2,12 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import {
   addMaterialToClass,
+  assignChapterToClass,
   createClassroomForTeacher,
   deleteClassroom,
   endLive,
   findClassroomByCode,
+  getAssignmentsForClass,
   getStudentJoinedCode,
   getStudentRemarks,
   joinClassroomAsStudent,
@@ -16,9 +18,11 @@ import {
   markAttendance,
   pushStudentToClass,
   pushTeacherRemark,
+  removeChapterAssignment,
   renameClassroom,
   setUserRole,
   startLive,
+  updateChapterDeadline,
 } from "@/lib/classroom-server";
 import type { StudentSnapshot } from "@/lib/classroom-types";
 
@@ -250,6 +254,7 @@ export async function GET(req: NextRequest) {
                   attendees: [],
                 },
                 alerts: [],
+                chapterAssignments: [],
               });
               have.add(c);
             }
@@ -286,6 +291,7 @@ export async function GET(req: NextRequest) {
             materials: found.classroom.materials || [],
             liveSession: sess,
             alerts: found.classroom.alerts || [],
+            chapterAssignments: found.classroom.chapterAssignments || [],
           });
           have.add(c);
         } catch {
@@ -475,6 +481,22 @@ export async function GET(req: NextRequest) {
           count: 0,
           ttlHours: 48,
         });
+      }
+    }
+
+    if (action === "assignments" && code) {
+      const c = code.toUpperCase();
+      try {
+        const assignments = await getAssignmentsForClass(c);
+        return NextResponse.json({
+          ok: true,
+          code: c,
+          assignments,
+          count: assignments.length,
+        });
+      } catch (e) {
+        console.error("assignments error", e);
+        return NextResponse.json({ ok: true, code: c, assignments: [], count: 0 });
       }
     }
 
@@ -709,6 +731,62 @@ export async function POST(req: NextRequest) {
       }
       const room = await leaveAttendance(code, userId);
       return NextResponse.json({ ok: true, classroom: room });
+    }
+
+    if (action === "assignChapter") {
+      const code = String(body.code || "").trim().toUpperCase();
+      const assignmentData = body.assignment;
+      if (!code || !assignmentData?.chapterId || !assignmentData?.deadline) {
+        return NextResponse.json(
+          { ok: false, error: "Code, chapter, and deadline required" },
+          { status: 400 }
+        );
+      }
+      const assignment = await assignChapterToClass(userId, code, {
+        subjectId: String(assignmentData.subjectId || "general"),
+        subjectName: String(assignmentData.subjectName || "General"),
+        chapterId: String(assignmentData.chapterId),
+        chapterNumber: Number(assignmentData.chapterNumber) || 1,
+        chapterTitle: String(assignmentData.chapterTitle || "Chapter"),
+        grade: String(assignmentData.grade || "12"),
+        deadline: String(assignmentData.deadline),
+        note: assignmentData.note ? String(assignmentData.note) : undefined,
+      });
+      return NextResponse.json({ ok: true, assignment });
+    }
+
+    if (action === "updateChapterDeadline") {
+      const code = String(body.code || "").trim().toUpperCase();
+      const chapterId = String(body.chapterId || "");
+      const newDeadline = String(body.deadline || "");
+      const note = body.note !== undefined ? String(body.note) : undefined;
+      if (!code || !chapterId || !newDeadline) {
+        return NextResponse.json(
+          { ok: false, error: "Code, chapter ID, and new deadline required" },
+          { status: 400 }
+        );
+      }
+      const assignment = await updateChapterDeadline(
+        userId,
+        code,
+        chapterId,
+        newDeadline,
+        note
+      );
+      return NextResponse.json({ ok: true, assignment });
+    }
+
+    if (action === "removeChapterAssignment") {
+      const code = String(body.code || "").trim().toUpperCase();
+      const chapterId = String(body.chapterId || "");
+      if (!code || !chapterId) {
+        return NextResponse.json(
+          { ok: false, error: "Code and chapter ID required" },
+          { status: 400 }
+        );
+      }
+      await removeChapterAssignment(userId, code, chapterId);
+      return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });

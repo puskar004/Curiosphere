@@ -5,38 +5,69 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
 import {
+  AlertCircle,
   BookOpen,
+  Calendar,
+  CalendarCheck,
+  CheckCircle2,
   ClipboardList,
+  Clock,
+  Code2,
   Copy,
+  ExternalLink,
+  FileCode,
   GraduationCap,
   Loader2,
+  Lock,
   Pencil,
+  Plus,
   Radio,
+  Sparkles,
   Trash2,
+  Unlock,
   Upload,
   Users,
   Video,
 } from "lucide-react";
 import MeetFrame from "@/components/MeetFrame";
 import PdfReaderModal from "@/components/PdfReaderModal";
+import { CURRICULUM } from "@/lib/curriculum";
+import type {
+  CodingProblem,
+  Difficulty,
+  LanguageId,
+  TestCase,
+  TrackId,
+} from "@/lib/coding-types";
 import {
   apiAddMaterial,
+  apiAssignChapter,
   apiCreateClassroom,
   apiDeleteClassroom,
   apiEndLive,
   apiListMyClasses,
+  apiRemoveChapterAssignment,
   apiRenameClassroom,
   apiSendRemark,
   apiStartLive,
+  apiUpdateChapterDeadline,
   apiUploadMaterialFile,
   getRole,
   setRole,
+  type ChapterAssignment,
   type Classroom,
   type StudentSnapshot,
 } from "@/lib/teacher-store";
 import { cn } from "@/lib/utils";
 
-type TeacherTab = "students" | "materials" | "live" | "code" | "attendance";
+type TeacherTab =
+  | "students"
+  | "materials"
+  | "live"
+  | "code"
+  | "attendance"
+  | "chapters"
+  | "coding";
 
 function TeacherInner() {
   const { userId, isSignedIn } = useAuth();
@@ -101,6 +132,50 @@ function TeacherInner() {
     url: string;
     id?: string;
   } | null>(null);
+
+  // Chapter assignment state
+  const [assignGrade, setAssignGrade] = useState<"10" | "11" | "12">("12");
+  const [assignSubjectId, setAssignSubjectId] = useState<string>("physics");
+  const [assignChapterId, setAssignChapterId] = useState<string>("");
+  const [assignDeadline, setAssignDeadline] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split("T")[0];
+  });
+  const [assignNote, setAssignNote] = useState<string>("");
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
+  const [editDeadlineDate, setEditDeadlineDate] = useState<string>("");
+
+  // Coding challenge manager state (CodeTantra style)
+  const [codingTrack, setCodingTrack] = useState<TrackId>("all");
+  const [codingProblems, setCodingProblems] = useState<CodingProblem[]>([]);
+  const [loadingCoding, setLoadingCoding] = useState(false);
+  const [showAddCoding, setShowAddCoding] = useState(false);
+  const [codingBusy, setCodingBusy] = useState(false);
+  const [codingSuccess, setCodingSuccess] = useState<string | null>(null);
+
+  // Coding Form fields
+  const [qTitle, setQTitle] = useState("");
+  const [qTrack, setQTrack] = useState<TrackId>("python");
+  const [qDifficulty, setQDifficulty] = useState<Difficulty>("easy");
+  const [qTags, setQTags] = useState("");
+  const [qDescription, setQDescription] = useState("");
+  const [qInputFormat, setQInputFormat] = useState("");
+  const [qOutputFormat, setQOutputFormat] = useState("");
+  const [qConstraints, setQConstraints] = useState("");
+  const [qSampleInput, setQSampleInput] = useState("");
+  const [qSampleOutput, setQSampleOutput] = useState("");
+  const [qExplanation, setQExplanation] = useState("");
+  const [qStarterPython, setQStarterPython] = useState("");
+  const [qStarterC, setQStarterC] = useState("");
+  const [qStarterCpp, setQStarterCpp] = useState("");
+  const [qTestCases, setQTestCases] = useState<
+    Array<{ id: string; input: string; expectedOutput: string; isSecret: boolean }>
+  >([
+    { id: "tc_1", input: "", expectedOutput: "", isSecret: false },
+    { id: "tc_2", input: "", expectedOutput: "", isSecret: true },
+  ]);
 
   const showHomeBanner = tab === "students" || !sp.get("tab");
 
@@ -290,6 +365,134 @@ function TeacherInner() {
     }, ms);
     return () => clearInterval(id);
   }, [userId, tab, refresh]);
+
+  const fetchCodingProblems = useCallback(async () => {
+    setLoadingCoding(true);
+    try {
+      const res = await fetch("/api/code/problems?scope=all");
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.problems)) {
+        setCodingProblems(data.problems);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingCoding(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "coding") {
+      void fetchCodingProblems();
+    }
+  }, [tab, fetchCodingProblems]);
+
+  const addTestCase = () => {
+    setQTestCases((prev) => [
+      ...prev,
+      {
+        id: `tc_${Date.now()}_${prev.length + 1}`,
+        input: "",
+        expectedOutput: "",
+        isSecret: prev.length >= 2,
+      },
+    ]);
+  };
+
+  const removeTestCase = (idx: number) => {
+    setQTestCases((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateTestCase = (
+    idx: number,
+    field: "input" | "expectedOutput" | "isSecret",
+    val: string | boolean
+  ) => {
+    setQTestCases((prev) =>
+      prev.map((item, i) => (i === idx ? { ...item, [field]: val } : item))
+    );
+  };
+
+  const handlePublishCodingQuestion = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!qTitle.trim() || !qDescription.trim()) {
+      quietError("Title and description are required.");
+      return;
+    }
+    setCodingBusy(true);
+    setCodingSuccess(null);
+    try {
+      const res = await fetch("/api/code/problems", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          title: qTitle.trim(),
+          track: qTrack,
+          difficulty: qDifficulty,
+          tags: qTags,
+          description: qDescription.trim(),
+          inputFormat: qInputFormat.trim(),
+          outputFormat: qOutputFormat.trim(),
+          constraints: qConstraints.trim(),
+          sampleInput: qSampleInput.trim(),
+          sampleOutput: qSampleOutput.trim(),
+          explanation: qExplanation.trim(),
+          starterCode: {
+            python: qStarterPython.trim() || undefined,
+            c: qStarterC.trim() || undefined,
+            cpp: qStarterCpp.trim() || undefined,
+          },
+          testCases: qTestCases.filter((tc) => tc.input || tc.expectedOutput),
+          authorName: user?.fullName || user?.firstName || "Teacher",
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Failed to publish question");
+
+      setCodingSuccess(`Published "${qTitle}" successfully to students!`);
+      // Reset form
+      setQTitle("");
+      setQDescription("");
+      setQTags("");
+      setQInputFormat("");
+      setQOutputFormat("");
+      setQConstraints("");
+      setQSampleInput("");
+      setQSampleOutput("");
+      setQExplanation("");
+      setQStarterPython("");
+      setQStarterC("");
+      setQStarterCpp("");
+      setQTestCases([
+        { id: "tc_1", input: "", expectedOutput: "", isSecret: false },
+        { id: "tc_2", input: "", expectedOutput: "", isSecret: true },
+      ]);
+      setShowAddCoding(false);
+      void fetchCodingProblems();
+    } catch (err) {
+      quietError(err instanceof Error ? err.message : "Publishing failed");
+    } finally {
+      setCodingBusy(false);
+    }
+  };
+
+  const handleDeleteCodingProblem = async (problemId: string, title: string) => {
+    if (!confirm(`Delete question "${title}"? Students will no longer see this question.`)) return;
+    try {
+      const res = await fetch("/api/code/problems", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", id: problemId }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Delete failed");
+      setCodingProblems((prev) => prev.filter((p) => p.id !== problemId));
+      setCodingSuccess(`Deleted question "${title}".`);
+    } catch (err) {
+      quietError(err instanceof Error ? err.message : "Failed to delete question");
+    }
+  };
 
   if (!isSignedIn || !userId) {
     return (
@@ -693,7 +896,11 @@ function TeacherInner() {
                 ? "Class code"
                 : tab === "attendance"
                   ? "Attendance"
-                  : "Teacher"}
+                  : tab === "chapters"
+                    ? "Unlock Chapters & Deadlines"
+                    : tab === "coding"
+                      ? "Coding Challenges (CodeTantra Engine)"
+                      : "Teacher"}
         </h1>
       )}
 
@@ -793,11 +1000,13 @@ function TeacherInner() {
       ) : (
         <div className="mt-6 grid gap-5 xl:grid-cols-[1fr_300px]">
           <div>
-            {/* Primary nav is sidebar — compact tabs only as secondary shortcuts */}
-            <div className="mb-4 flex flex-wrap gap-2 rounded-full bg-white/80 p-1 shadow-sm ring-1 ring-slate-200 lg:hidden">
+            {/* Class management tab navigation */}
+            <div className="mb-4 flex flex-wrap gap-2 rounded-2xl bg-white/90 p-1.5 shadow-sm ring-1 ring-slate-200">
               {(
                 [
                   ["students", "Students"],
+                  ["chapters", "Chapter Deadlines"],
+                  ["coding", "Coding Challenges"],
                   ["materials", "Upload"],
                   ["live", "Live"],
                   ["attendance", "Attendance"],
@@ -809,10 +1018,10 @@ function TeacherInner() {
                   type="button"
                   onClick={() => setTab(id)}
                   className={cn(
-                    "flex-1 rounded-full px-3 py-2 text-xs font-bold transition",
+                    "rounded-xl px-3.5 py-2 text-xs font-bold transition",
                     tab === id
-                      ? "bg-indigo-600 text-white"
-                      : "text-slate-500 hover:bg-indigo-50"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
                   )}
                 >
                   {label}
@@ -1368,6 +1577,973 @@ function TeacherInner() {
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {tab === "chapters" && (
+              <div className="space-y-6">
+                {/* Header card */}
+                <div className="rounded-3xl border border-indigo-100 bg-white p-6 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="flex items-center gap-2 text-lg font-black text-slate-900">
+                        <CalendarCheck className="h-5 w-5 text-indigo-600" />
+                        Unlock Chapters & Target Deadlines
+                      </h2>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Select which subject chapters students in <strong>{room.name}</strong> can access, set completion target dates, and extend dates if students need more time.
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700 border border-indigo-200">
+                      {(room.chapterAssignments || []).length} Chapters Unlocked
+                    </span>
+                  </div>
+
+                  {/* Unlock Chapter Form */}
+                  <div className="mt-6 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 sm:p-5">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-500">
+                      Unlock a new chapter
+                    </h3>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {/* Grade Selector */}
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500">
+                          Grade / Class
+                        </label>
+                        <select
+                          value={assignGrade}
+                          onChange={(e) => {
+                            const g = e.target.value as "10" | "11" | "12";
+                            setAssignGrade(g);
+                            const pack = CURRICULUM.find((p) => p.grade === g);
+                            if (pack && pack.subjects.length > 0) {
+                              setAssignSubjectId(pack.subjects[0].id);
+                              if (pack.subjects[0].chapters.length > 0) {
+                                setAssignChapterId(pack.subjects[0].chapters[0].id);
+                              }
+                            }
+                          }}
+                          className={`${field} mt-1 w-full text-xs font-medium`}
+                        >
+                          <option value="10">Class 10</option>
+                          <option value="11">Class 11</option>
+                          <option value="12">Class 12</option>
+                        </select>
+                      </div>
+
+                      {/* Subject Selector */}
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500">
+                          Subject
+                        </label>
+                        <select
+                          value={assignSubjectId}
+                          onChange={(e) => {
+                            const sid = e.target.value;
+                            setAssignSubjectId(sid);
+                            const pack = CURRICULUM.find((p) => p.grade === assignGrade);
+                            const sub = pack?.subjects.find((s) => s.id === sid);
+                            if (sub && sub.chapters.length > 0) {
+                              setAssignChapterId(sub.chapters[0].id);
+                            }
+                          }}
+                          className={`${field} mt-1 w-full text-xs font-medium`}
+                        >
+                          {(
+                            CURRICULUM.find((p) => p.grade === assignGrade)?.subjects ||
+                            []
+                          ).map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Chapter Selector */}
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500">
+                          Chapter
+                        </label>
+                        <select
+                          value={
+                            assignChapterId ||
+                            CURRICULUM.find((p) => p.grade === assignGrade)
+                              ?.subjects.find((s) => s.id === assignSubjectId)
+                              ?.chapters[0]?.id ||
+                            ""
+                          }
+                          onChange={(e) => setAssignChapterId(e.target.value)}
+                          className={`${field} mt-1 w-full text-xs font-medium`}
+                        >
+                          {(
+                            CURRICULUM.find((p) => p.grade === assignGrade)
+                              ?.subjects.find((s) => s.id === assignSubjectId)
+                              ?.chapters || []
+                          ).map((ch) => (
+                            <option key={ch.id} value={ch.id}>
+                              Ch {ch.number}: {ch.title}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Target Deadline Date */}
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500">
+                          Completion Deadline
+                        </label>
+                        <input
+                          type="date"
+                          value={assignDeadline}
+                          onChange={(e) => setAssignDeadline(e.target.value)}
+                          className={`${field} mt-1 w-full text-xs font-medium`}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Optional Note & Submit Button */}
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      <input
+                        type="text"
+                        value={assignNote}
+                        onChange={(e) => setAssignNote(e.target.value)}
+                        placeholder="Optional instructions for students (e.g. Complete exercises & NCERT reading)"
+                        className={`${field} flex-1 text-xs`}
+                      />
+                      <button
+                        type="button"
+                        disabled={assignBusy}
+                        onClick={async () => {
+                          const pack = CURRICULUM.find((p) => p.grade === assignGrade);
+                          const sub =
+                            pack?.subjects.find((s) => s.id === assignSubjectId) ||
+                            pack?.subjects[0];
+                          if (!sub) return;
+                          const targetChId =
+                            assignChapterId || sub.chapters[0]?.id;
+                          const chObj =
+                            sub.chapters.find((c) => c.id === targetChId) ||
+                            sub.chapters[0];
+                          if (!chObj) return;
+
+                          setAssignBusy(true);
+                          try {
+                            const res = await apiAssignChapter(room.code, {
+                              grade: assignGrade,
+                              subjectId: sub.id,
+                              subjectName: sub.name,
+                              chapterId: chObj.id,
+                              chapterNumber: chObj.number,
+                              chapterTitle: chObj.title,
+                              deadline: assignDeadline,
+                              note: assignNote.trim() || undefined,
+                            });
+                            if (res.ok && res.assignment) {
+                              const updatedAssignments = [
+                                res.assignment,
+                                ...(room.chapterAssignments || []).filter(
+                                  (a) => a.chapterId !== chObj.id
+                                ),
+                              ];
+                              const nextRoom = {
+                                ...room,
+                                chapterAssignments: updatedAssignments,
+                              };
+                              setRoom(nextRoom);
+                              persistClasses(
+                                classes.map((c) =>
+                                  c.code === room.code ? nextRoom : c
+                                )
+                              );
+                              setMatNote(`Unlocked "${chObj.title}" for students with deadline ${assignDeadline}.`);
+                              setAssignNote("");
+                            }
+                          } catch (e) {
+                            quietError(
+                              e instanceof Error ? e.message : "Failed to assign chapter"
+                            );
+                          } finally {
+                            setAssignBusy(false);
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        {assignBusy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Unlock className="h-4 w-4" />
+                        )}
+                        Unlock & Set Deadline
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Active Chapter Assignments List */}
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h3 className="text-sm font-extrabold text-slate-900">
+                    Currently Allowed Chapters ({room.chapterAssignments?.length || 0})
+                  </h3>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Students will only see and access these chapters in their NCERT & Practice modules. You can modify deadlines or revoke access anytime.
+                  </p>
+
+                  {(!room.chapterAssignments || room.chapterAssignments.length === 0) ? (
+                    <div className="mt-4 rounded-2xl border border-dashed border-slate-200 p-8 text-center">
+                      <Lock className="mx-auto h-8 w-8 text-slate-300" />
+                      <p className="mt-2 text-xs font-semibold text-slate-600">
+                        No chapters unlocked yet.
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-slate-400">
+                        Use the form above to unlock chapters for Class {room.name}.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="mt-4 divide-y divide-slate-100">
+                      {room.chapterAssignments.map((a) => {
+                        const isEditing = editingChapterId === a.chapterId;
+                        const todayStr = new Date().toISOString().split("T")[0];
+                        const isOverdue = a.deadline < todayStr;
+                        const isDueToday = a.deadline === todayStr;
+
+                        return (
+                          <div
+                            key={a.id || a.chapterId}
+                            className="flex flex-wrap items-center justify-between gap-3 py-3.5"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-lg bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+                                  Class {a.grade} · {a.subjectName}
+                                </span>
+                                <span className="text-sm font-bold text-slate-900">
+                                  Ch {a.chapterNumber}: {a.chapterTitle}
+                                </span>
+                                {isOverdue ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700">
+                                    <AlertCircle className="h-3 w-3" /> Overdue ({a.deadline})
+                                  </span>
+                                ) : isDueToday ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                                    <Clock className="h-3 w-3" /> Due Today ({a.deadline})
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                                    <CheckCircle2 className="h-3 w-3" /> Target: {a.deadline}
+                                  </span>
+                                )}
+                              </div>
+                              {a.note && (
+                                <p className="mt-1 text-xs text-slate-500 italic">
+                                  Note: {a.note}
+                                </p>
+                              )}
+                              {a.updatedAt && (
+                                <p className="text-[10px] text-slate-400">
+                                  Deadline updated {new Date(a.updatedAt).toLocaleDateString()}
+                                </p>
+                              )}
+
+                              {/* Inline Date Modifier */}
+                              {isEditing && (
+                                <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 p-2.5">
+                                  <span className="text-xs font-bold text-indigo-900">
+                                    New Target Date:
+                                  </span>
+                                  <input
+                                    type="date"
+                                    value={editDeadlineDate}
+                                    onChange={(e) => setEditDeadlineDate(e.target.value)}
+                                    className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-900"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={!editDeadlineDate}
+                                    onClick={async () => {
+                                      if (!editDeadlineDate) return;
+                                      try {
+                                        const res = await apiUpdateChapterDeadline(
+                                          room.code,
+                                          a.chapterId,
+                                          editDeadlineDate
+                                        );
+                                        if (res.ok && res.assignment) {
+                                          const nextAssignments = (room.chapterAssignments || []).map(
+                                            (item) =>
+                                              item.chapterId === a.chapterId
+                                                ? res.assignment
+                                                : item
+                                          );
+                                          const nextRoom = {
+                                            ...room,
+                                            chapterAssignments: nextAssignments,
+                                          };
+                                          setRoom(nextRoom);
+                                          persistClasses(
+                                            classes.map((c) =>
+                                              c.code === room.code ? nextRoom : c
+                                            )
+                                          );
+                                          setEditingChapterId(null);
+                                          setMatNote(`Updated deadline for Ch ${a.chapterNumber} to ${editDeadlineDate}.`);
+                                        }
+                                      } catch (err) {
+                                        quietError(
+                                          err instanceof Error
+                                            ? err.message
+                                            : "Failed to update deadline"
+                                        );
+                                      }
+                                    }}
+                                    className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-bold text-white hover:bg-indigo-700"
+                                  >
+                                    Save New Date
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingChapterId(null)}
+                                    className="rounded-lg bg-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-300"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {!isEditing && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingChapterId(a.chapterId);
+                                    setEditDeadlineDate(a.deadline);
+                                  }}
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
+                                >
+                                  <Calendar className="h-3.5 w-3.5" />
+                                  Modify Date
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (
+                                    !confirm(
+                                      `Lock Chapter ${a.chapterNumber}: ${a.chapterTitle}? Students will no longer see this chapter.`
+                                    )
+                                  )
+                                    return;
+                                  try {
+                                    await apiRemoveChapterAssignment(
+                                      room.code,
+                                      a.chapterId
+                                    );
+                                    const nextAssignments = (room.chapterAssignments || []).filter(
+                                      (item) => item.chapterId !== a.chapterId
+                                    );
+                                    const nextRoom = {
+                                      ...room,
+                                      chapterAssignments: nextAssignments,
+                                    };
+                                    setRoom(nextRoom);
+                                    persistClasses(
+                                      classes.map((c) =>
+                                        c.code === room.code ? nextRoom : c
+                                      )
+                                    );
+                                    setMatNote(`Locked Chapter ${a.chapterNumber} for students.`);
+                                  } catch (err) {
+                                    quietError(
+                                      err instanceof Error
+                                        ? err.message
+                                        : "Failed to lock chapter"
+                                    );
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700"
+                              >
+                                <Lock className="h-3.5 w-3.5" />
+                                Lock
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {tab === "coding" && (
+              <div className="space-y-6">
+                {/* Feedback message */}
+                {codingSuccess && (
+                  <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-800">
+                    <span>{codingSuccess}</span>
+                    <button
+                      type="button"
+                      onClick={() => setCodingSuccess(null)}
+                      className="ml-3 font-bold text-emerald-700 hover:text-emerald-900"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {/* Top Coding Hub Header */}
+                <div className="rounded-3xl border border-indigo-100 bg-white p-6 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Code2 className="h-6 w-6 text-indigo-600" />
+                        <h2 className="text-lg font-black text-slate-900">
+                          Coding Challenges (CodeTantra Engine)
+                        </h2>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500 max-w-2xl">
+                        Upload coding questions for Python, C, C++, and DSA. Configure public and hidden test cases for automated CodeTantra-style evaluation.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        href="/code"
+                        target="_blank"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        Open Student IDE
+                      </Link>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCoding((prev) => !prev)}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white shadow-md shadow-indigo-600/20 hover:bg-indigo-700 transition"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        {showAddCoding ? "Close Form" : "Upload New Question"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Category Filter Pills */}
+                  <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+                    {(
+                      [
+                        ["all", "All Tracks"],
+                        ["python", "Python 🐍"],
+                        ["c", "C ⚡"],
+                        ["cpp", "C++ 🚀"],
+                        ["dsa", "DSA 🧠"],
+                      ] as const
+                    ).map(([id, label]) => {
+                      const count =
+                        id === "all"
+                          ? codingProblems.length
+                          : codingProblems.filter((p) => p.track === id).length;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setCodingTrack(id)}
+                          className={cn(
+                            "flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition",
+                            codingTrack === id
+                              ? "bg-indigo-600 text-white shadow-sm"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          )}
+                        >
+                          <span>{label}</span>
+                          <span
+                            className={cn(
+                              "rounded-full px-1.5 py-0.2 text-[10px]",
+                              codingTrack === id
+                                ? "bg-white/25 text-white"
+                                : "bg-white text-slate-600"
+                            )}
+                          >
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Question Upload Form */}
+                {showAddCoding && (
+                  <form
+                    onSubmit={handlePublishCodingQuestion}
+                    className="rounded-3xl border border-indigo-200 bg-white p-6 shadow-md space-y-5"
+                  >
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div>
+                        <h3 className="text-sm font-black text-slate-900">
+                          Upload New Coding Question
+                        </h3>
+                        <p className="text-[11px] text-slate-500">
+                          Fill problem details and test cases. Question will be immediately available in the Student Coding Section.
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold text-indigo-700">
+                        CodeTantra Automated Evaluator
+                      </span>
+                    </div>
+
+                    {/* Basic Meta */}
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="sm:col-span-2">
+                        <label className="text-[11px] font-bold text-slate-600">
+                          Problem Title *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={qTitle}
+                          onChange={(e) => setQTitle(e.target.value)}
+                          placeholder="e.g. Reverse an Array / Palindrome Check"
+                          className={cn(field, "w-full mt-1")}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600">
+                          Category / Track *
+                        </label>
+                        <select
+                          value={qTrack}
+                          onChange={(e) => setQTrack(e.target.value as TrackId)}
+                          className={cn(field, "w-full mt-1")}
+                        >
+                          <option value="python">Python 🐍</option>
+                          <option value="c">C Language ⚡</option>
+                          <option value="cpp">C++ 🚀</option>
+                          <option value="dsa">DSA (Data Structures) 🧠</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600">
+                          Difficulty *
+                        </label>
+                        <select
+                          value={qDifficulty}
+                          onChange={(e) => setQDifficulty(e.target.value as Difficulty)}
+                          className={cn(field, "w-full mt-1")}
+                        >
+                          <option value="easy">Easy</option>
+                          <option value="medium">Medium</option>
+                          <option value="hard">Hard</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Tags */}
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600">
+                        Topic Tags (comma-separated)
+                      </label>
+                      <input
+                        type="text"
+                        value={qTags}
+                        onChange={(e) => setQTags(e.target.value)}
+                        placeholder="e.g. Arrays, Strings, CBSE Class 11, Two Pointers"
+                        className={cn(field, "w-full mt-1")}
+                      />
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <label className="text-[11px] font-bold text-slate-600">
+                        Problem Statement / Description *
+                      </label>
+                      <textarea
+                        rows={4}
+                        required
+                        value={qDescription}
+                        onChange={(e) => setQDescription(e.target.value)}
+                        placeholder="Explain the problem clearly with requirements, input rules, and expected behavior..."
+                        className={cn(field, "w-full mt-1 font-mono text-xs")}
+                      />
+                    </div>
+
+                    {/* Input/Output/Constraints */}
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600">
+                          Input Format
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={qInputFormat}
+                          onChange={(e) => setQInputFormat(e.target.value)}
+                          placeholder="e.g. First line contains an integer T..."
+                          className={cn(field, "w-full mt-1 text-xs")}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600">
+                          Output Format
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={qOutputFormat}
+                          onChange={(e) => setQOutputFormat(e.target.value)}
+                          placeholder="e.g. Print True if palindrome else False"
+                          className={cn(field, "w-full mt-1 text-xs")}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-600">
+                          Constraints
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={qConstraints}
+                          onChange={(e) => setQConstraints(e.target.value)}
+                          placeholder="e.g. 1 <= N <= 10^5"
+                          className={cn(field, "w-full mt-1 text-xs font-mono")}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Sample Case */}
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+                      <div className="text-xs font-black uppercase tracking-wider text-slate-500 mb-2">
+                        Sample Case (Visible to Students)
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600">
+                            Sample Input (STDIN)
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={qSampleInput}
+                            onChange={(e) => setQSampleInput(e.target.value)}
+                            placeholder="5&#10;1 2 3 4 5"
+                            className={cn(field, "w-full mt-1 font-mono text-xs")}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600">
+                            Sample Output (Expected STDOUT)
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={qSampleOutput}
+                            onChange={(e) => setQSampleOutput(e.target.value)}
+                            placeholder="15"
+                            className={cn(field, "w-full mt-1 font-mono text-xs")}
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-2">
+                        <label className="text-[11px] font-bold text-slate-600">
+                          Explanation (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={qExplanation}
+                          onChange={(e) => setQExplanation(e.target.value)}
+                          placeholder="Brief reason for why this output is expected"
+                          className={cn(field, "w-full mt-1 text-xs")}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Test Cases Builder (CodeTantra Style) */}
+                    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-black uppercase tracking-wider text-indigo-900">
+                            Evaluation Test Cases ({qTestCases.length})
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            Students will run their code against these test cases to verify their solution.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={addTestCase}
+                          className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1 text-xs font-bold text-white hover:bg-indigo-700"
+                        >
+                          <Plus className="h-3 w-3" /> Add Test Case
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        {qTestCases.map((tc, idx) => (
+                          <div
+                            key={tc.id || idx}
+                            className="rounded-xl border border-indigo-100 bg-white p-3 shadow-xs space-y-2"
+                          >
+                            <div className="flex items-center justify-between text-xs font-bold">
+                              <span className="text-slate-800">
+                                Test Case #{idx + 1}
+                              </span>
+                              <div className="flex items-center gap-3">
+                                <label className="flex items-center gap-1.5 cursor-pointer text-[11px] font-semibold text-slate-600">
+                                  <input
+                                    type="checkbox"
+                                    checked={tc.isSecret}
+                                    onChange={(e) =>
+                                      updateTestCase(idx, "isSecret", e.target.checked)
+                                    }
+                                    className="rounded border-slate-300 text-indigo-600"
+                                  />
+                                  <span>Hidden Test Case 🔒</span>
+                                </label>
+                                {qTestCases.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removeTestCase(idx)}
+                                    className="text-rose-500 hover:text-rose-700 text-xs"
+                                    title="Remove test case"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div>
+                                <span className="text-[10px] font-bold text-slate-500">
+                                  STDIN Input
+                                </span>
+                                <textarea
+                                  rows={2}
+                                  value={tc.input}
+                                  onChange={(e) =>
+                                    updateTestCase(idx, "input", e.target.value)
+                                  }
+                                  placeholder="Input provided to student program"
+                                  className={cn(field, "w-full mt-0.5 font-mono text-[11px]")}
+                                />
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-bold text-slate-500">
+                                  Expected STDOUT Output
+                                </span>
+                                <textarea
+                                  rows={2}
+                                  value={tc.expectedOutput}
+                                  onChange={(e) =>
+                                    updateTestCase(idx, "expectedOutput", e.target.value)
+                                  }
+                                  placeholder="Exact expected output"
+                                  className={cn(field, "w-full mt-0.5 font-mono text-[11px]")}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Starter Code Templates (Optional) */}
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+                      <div className="text-xs font-black uppercase tracking-wider text-slate-500 mb-2">
+                        Custom Starter Code (Optional - Default provided if left blank)
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600">
+                            Python Starter
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={qStarterPython}
+                            onChange={(e) => setQStarterPython(e.target.value)}
+                            placeholder="import sys..."
+                            className={cn(field, "w-full mt-1 font-mono text-[11px]")}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600">
+                            C Starter
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={qStarterC}
+                            onChange={(e) => setQStarterC(e.target.value)}
+                            placeholder="#include <stdio.h>..."
+                            className={cn(field, "w-full mt-1 font-mono text-[11px]")}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-600">
+                            C++ Starter
+                          </label>
+                          <textarea
+                            rows={3}
+                            value={qStarterCpp}
+                            onChange={(e) => setQStarterCpp(e.target.value)}
+                            placeholder="#include <iostream>..."
+                            className={cn(field, "w-full mt-1 font-mono text-[11px]")}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Form actions */}
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCoding(false)}
+                        className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={codingBusy}
+                        className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white shadow-md shadow-indigo-600/25 hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        {codingBusy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4" />
+                        )}
+                        Publish Question to Students
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* Published Questions List */}
+                <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-900">
+                        Coding Question Repository
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        {codingTrack === "all"
+                          ? "Showing questions across all programming tracks"
+                          : `Showing questions for ${codingTrack.toUpperCase()} track`}
+                      </p>
+                    </div>
+                    {loadingCoding && (
+                      <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
+                    )}
+                  </div>
+
+                  {(() => {
+                    const displayed =
+                      codingTrack === "all"
+                        ? codingProblems
+                        : codingProblems.filter((p) => p.track === codingTrack);
+
+                    if (displayed.length === 0) {
+                      return (
+                        <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center">
+                          <FileCode className="mx-auto h-8 w-8 text-slate-300" />
+                          <p className="mt-2 text-xs font-semibold text-slate-600">
+                            No questions found in this category.
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-slate-400">
+                            Click &ldquo;Upload New Question&rdquo; above to add one.
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="divide-y divide-slate-100">
+                        {displayed.map((prob) => {
+                          const isTeacher = prob.source === "teacher";
+                          const secretCount = (prob.testCases || []).filter(
+                            (tc) => tc.isSecret
+                          ).length;
+
+                          return (
+                            <div
+                              key={prob.id}
+                              className="flex flex-wrap items-center justify-between gap-4 py-4"
+                            >
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-lg bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase text-indigo-700">
+                                    {prob.track}
+                                  </span>
+
+                                  <span
+                                    className={cn(
+                                      "rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase",
+                                      prob.difficulty === "easy"
+                                        ? "bg-emerald-50 text-emerald-700"
+                                        : prob.difficulty === "medium"
+                                          ? "bg-amber-50 text-amber-700"
+                                          : "bg-rose-50 text-rose-700"
+                                    )}
+                                  >
+                                    {prob.difficulty}
+                                  </span>
+
+                                  {isTeacher && (
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-700 border border-violet-200">
+                                      👨‍🏫 Teacher Uploaded
+                                    </span>
+                                  )}
+
+                                  <span className="text-sm font-bold text-slate-900">
+                                    {prob.title}
+                                  </span>
+                                </div>
+
+                                <p className="text-xs text-slate-500 line-clamp-2">
+                                  {prob.description}
+                                </p>
+
+                                <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+                                  <span>
+                                    ⚡ {prob.testCases?.length || 0} Test Cases
+                                    {secretCount > 0 ? ` (${secretCount} hidden 🔒)` : ""}
+                                  </span>
+                                  {prob.tags && prob.tags.length > 0 && (
+                                    <span>• Tags: {prob.tags.slice(0, 3).join(", ")}</span>
+                                  )}
+                                  {prob.authorName && (
+                                    <span>• By: {prob.authorName}</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <Link
+                                  href={`/code?problem=${prob.id}`}
+                                  target="_blank"
+                                  className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  Test in IDE
+                                </Link>
+
+                                {isTeacher && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleDeleteCodingProblem(prob.id, prob.title)
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700"
+                                    title="Delete this question"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             )}
           </div>

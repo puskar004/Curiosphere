@@ -17,6 +17,8 @@ import {
   PlayCircle,
   GraduationCap,
   Radio,
+  Terminal,
+  CalendarCheck,
 } from "lucide-react";
 import {
   accuracy,
@@ -31,6 +33,7 @@ import {
   getJoinedClasses,
   getRole,
   setRole,
+  type ChapterAssignment,
 } from "@/lib/teacher-store";
 import { emitRoleChanged } from "@/lib/role-events";
 
@@ -41,6 +44,13 @@ const tiles = [
     desc: "Complete CBSE bookshelf with in-app PDFs",
     icon: BookOpen,
     tone: "bg-indigo-50 text-indigo-600",
+  },
+  {
+    href: "/code",
+    title: "Coding Playground",
+    desc: "Python, C, C++ & DSA practice with AI mentor",
+    icon: Terminal,
+    tone: "bg-cyan-50 text-cyan-700",
   },
   {
     href: "/blueprint",
@@ -110,6 +120,9 @@ export default function DashboardPage() {
     subject?: string;
     joinUntil?: number;
   } | null>(null);
+  const [upcomingAssignments, setUpcomingAssignments] = useState<
+    ChapterAssignment[]
+  >([]);
 
   useEffect(() => {
     if (userId) setP(loadProgress(userId));
@@ -182,7 +195,18 @@ export default function DashboardPage() {
             title?: string;
             subject?: string;
           } | null;
+          chapterAssignments?: ChapterAssignment[];
         }[];
+
+        // Collect upcoming teacher assignments
+        const allAssigns: ChapterAssignment[] = [];
+        for (const rm of rooms) {
+          for (const a of rm.chapterAssignments || []) {
+            allAssigns.push(a);
+          }
+        }
+        setUpcomingAssignments(allAssigns);
+
         const hit = rooms.find((r) => r.liveSession?.active);
         if (hit?.liveSession?.active) {
           const ju =
@@ -255,6 +279,33 @@ export default function DashboardPage() {
             Join live class →
           </span>
         </Link>
+      )}
+
+      {/* Teacher Milestone Deadlines Banner */}
+      {upcomingAssignments.length > 0 && (
+        <div className="mb-4 rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-900 px-4 py-3.5 text-white shadow-lg shadow-indigo-900/20">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-indigo-300">
+                <CalendarCheck className="h-5 w-5" />
+              </span>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-300">
+                  Teacher Milestone Deadlines · {upcomingAssignments.length} unlocked chapter{upcomingAssignments.length > 1 ? "s" : ""}
+                </div>
+                <div className="text-sm font-extrabold text-white">
+                  {upcomingAssignments[0].chapterTitle} (Target: {upcomingAssignments[0].deadline})
+                </div>
+              </div>
+            </div>
+            <Link
+              href="/ncert"
+              className="rounded-xl bg-indigo-500 hover:bg-indigo-400 px-4 py-2 text-xs font-bold text-white transition shadow-sm"
+            >
+              View Allowed Chapters →
+            </Link>
+          </div>
+        </div>
       )}
 
       {/* Welcome banner */}

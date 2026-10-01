@@ -4,12 +4,14 @@
  */
 
 import type {
+  ChapterAssignment,
   Classroom,
   StudentSnapshot,
   TeacherMaterial,
 } from "@/lib/classroom-types";
 
 export type {
+  ChapterAssignment,
   Classroom,
   StudentSnapshot,
   TeacherMaterial,
@@ -709,4 +711,63 @@ export function postLiveMessage(
 }
 export function demoStudentsIfEmpty(room: Classroom): Classroom {
   return room;
+}
+
+export async function apiAssignChapter(
+  code: string,
+  assignment: {
+    subjectId: string;
+    subjectName: string;
+    chapterId: string;
+    chapterNumber: number;
+    chapterTitle: string;
+    grade: string;
+    deadline: string;
+    note?: string;
+  }
+) {
+  const res = await fetch("/api/classroom", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "assignChapter", code, assignment }),
+  });
+  return res.json();
+}
+
+export async function apiUpdateChapterDeadline(
+  code: string,
+  chapterId: string,
+  deadline: string,
+  note?: string
+) {
+  const res = await fetch("/api/classroom", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "updateChapterDeadline",
+      code,
+      chapterId,
+      deadline,
+      note,
+    }),
+  });
+  return res.json();
+}
+
+export async function apiRemoveChapterAssignment(code: string, chapterId: string) {
+  const res = await fetch("/api/classroom", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "removeChapterAssignment", code, chapterId }),
+  });
+  return res.json();
+}
+
+export async function apiGetClassAssignments(
+  code: string
+): Promise<{ ok: boolean; assignments: ChapterAssignment[] }> {
+  const res = await fetch(
+    `/api/classroom?action=assignments&code=${encodeURIComponent(code)}`
+  );
+  return res.json();
 }

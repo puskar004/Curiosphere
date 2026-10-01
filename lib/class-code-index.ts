@@ -4,7 +4,7 @@
  */
 import { promises as fs } from "fs";
 import path from "path";
-import type { LiveSession, TeacherMaterial } from "@/lib/classroom-types";
+import type { ChapterAssignment, LiveSession, TeacherMaterial } from "@/lib/classroom-types";
 import { uploadBufferRemote } from "@/lib/remote-upload";
 
 /** Keep teacher PDFs visible longer so history is not wiped after 2 days */
@@ -40,6 +40,8 @@ type Index = {
   liveUrls?: Record<string, string>;
   /** Soft-deleted codes (students should drop these) */
   deleted?: Record<string, number>;
+  /** CODE → teacher unlocked chapter assignments */
+  assignments?: Record<string, ChapterAssignment[]>;
   updatedAt: number;
   remoteUrl?: string;
 };
@@ -585,4 +587,24 @@ export async function getClassMaterialsUrl(
   const c = code.toUpperCase();
   const idx = await loadIndex(true);
   return idx.matsUrls?.[c] || null;
+}
+
+export async function publishChapterAssignments(
+  code: string,
+  assignments: ChapterAssignment[]
+): Promise<ChapterAssignment[]> {
+  const c = code.toUpperCase();
+  const idx = await loadIndex(true);
+  if (!idx.assignments) idx.assignments = {};
+  idx.assignments[c] = assignments;
+  await persist(idx, true);
+  return idx.assignments[c];
+}
+
+export async function getClassAssignments(
+  code: string
+): Promise<ChapterAssignment[]> {
+  const c = code.toUpperCase();
+  const idx = await loadIndex(true);
+  return idx.assignments?.[c] || [];
 }

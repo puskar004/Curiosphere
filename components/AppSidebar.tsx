@@ -24,6 +24,8 @@ import {
   MessageSquare,
   Newspaper,
   GitBranch,
+  Terminal,
+  CalendarCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getJoinedClass, getRole, setRole } from "@/lib/teacher-store";
@@ -32,6 +34,7 @@ import { ROLE_EVENT, emitRoleChanged } from "@/lib/role-events";
 const studentNav = [
   { href: "/dashboard", label: "Home", icon: Home },
   { href: "/ncert", label: "NCERT & Chapters", icon: BookOpen },
+  { href: "/code", label: "Coding Practice", icon: Terminal },
   { href: "/pyq", label: "PYQs", icon: ClipboardList },
   { href: "/quiz", label: "Practice & Quiz", icon: Target },
   { href: "/test", label: "Live Test", icon: ClipboardList },
@@ -50,6 +53,7 @@ const studentNav = [
 const teacherNav = [
   { href: "/teacher", label: "Teacher Home", icon: Home },
   { href: "/teacher?tab=students", label: "My Students", icon: Users },
+  { href: "/teacher?tab=chapters", label: "Chapter Deadlines", icon: CalendarCheck },
   { href: "/teacher/test", label: "Live Tests", icon: ClipboardList },
   { href: "/teacher?tab=materials", label: "Upload Notes/Videos", icon: Upload },
   { href: "/teacher?tab=live", label: "Live Sessions", icon: Radio },

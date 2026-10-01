@@ -95,6 +95,20 @@ export type LiveSession = {
   kickReasons?: Record<string, string>;
 };
 
+export type ChapterAssignment = {
+  id: string;
+  subjectId: string;
+  subjectName: string;
+  chapterId: string;
+  chapterNumber: number;
+  chapterTitle: string;
+  grade: string;
+  deadline: string; // YYYY-MM-DD
+  assignedAt: number;
+  updatedAt?: number;
+  note?: string;
+};
+
 export type Classroom = {
   code: string;
   name: string;
@@ -108,6 +122,8 @@ export type Classroom = {
   alerts?: ClassAlert[];
   /** Past + current session attendance */
   attendanceLog?: AttendanceRecord[];
+  /** Teacher-unlocked chapters with completion deadlines */
+  chapterAssignments?: ChapterAssignment[];
 };
 
 export type SmartlearnMeta = {
