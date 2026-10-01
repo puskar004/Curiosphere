@@ -27,6 +27,8 @@ export type CodingProblem = {
   source?: "teacher" | "system";
   authorName?: string;
   createdAt?: number;
+  chapterId?: string;
+  unitNumber?: number;
 };
 
 export type TestResult = {

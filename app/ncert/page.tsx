@@ -406,14 +406,20 @@ function NcertInner() {
 
   const subjects = useMemo(() => {
     let list = pack.subjects;
-    if (hasAssignments && onlyAssigned) {
+    // Strict Teacher Allowed Chapters Mode:
+    // If student has classroom assignments, or is enrolled in a class, ONLY show chapters allowed by teacher!
+    if (hasAssignments) {
       list = list
         .map((s) => ({
           ...s,
           chapters: s.chapters.filter((c) => Boolean(assignmentsMap[c.id])),
         }))
         .filter((s) => s.chapters.length > 0);
+    } else if (classrooms.length > 0) {
+      // Enrolled in class but teacher hasn't unlocked any chapters yet
+      list = [];
     }
+
     if (!q.trim()) return list;
     const needle = q.toLowerCase();
     return list
@@ -427,7 +433,7 @@ function NcertInner() {
         ),
       }))
       .filter((s) => s.chapters.length > 0);
-  }, [pack, q, hasAssignments, onlyAssigned, assignmentsMap]);
+  }, [pack, q, hasAssignments, classrooms.length, assignmentsMap]);
 
   const totalCh = pack.subjects.reduce((n, s) => n + s.chapters.length, 0);
   const openedCount = pack.subjects.reduce(
@@ -511,38 +517,18 @@ function NcertInner() {
               </div>
               <div>
                 <h2 className="text-xs font-black uppercase tracking-wider text-indigo-950">
-                  Teacher Assigned Chapters ({allAssignments.length} Unlocked)
+                  Teacher-Allowed Chapters ({allAssignments.length} Unlocked)
                 </h2>
                 <p className="text-xs text-slate-600">
-                  Your teacher has scheduled specific chapters with completion deadlines for your class.
+                  Only chapters approved and scheduled by your teacher with completion deadlines are visible.
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white p-1 shadow-sm">
-              <button
-                type="button"
-                onClick={() => setOnlyAssigned(true)}
-                className={cn(
-                  "rounded-full px-3.5 py-1.5 text-xs font-bold transition",
-                  onlyAssigned
-                    ? "bg-indigo-600 text-white shadow-sm"
-                    : "text-slate-600 hover:text-indigo-600"
-                )}
-              >
-                Assigned Only ({allAssignments.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setOnlyAssigned(false)}
-                className={cn(
-                  "rounded-full px-3.5 py-1.5 text-xs font-bold transition",
-                  !onlyAssigned
-                    ? "bg-indigo-600 text-white shadow-sm"
-                    : "text-slate-600 hover:text-indigo-600"
-                )}
-              >
-                All Chapters
-              </button>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white px-3.5 py-1.5 text-xs font-bold text-indigo-700 shadow-sm">
+                <Lock className="h-3 w-3 text-indigo-600" />
+                Teacher Locked ({allAssignments.length} Allowed)
+              </span>
             </div>
           </div>
         </div>
@@ -612,9 +598,19 @@ function NcertInner() {
             />
           ))}
           {subjects.length === 0 && (
-            <p className="col-span-full rounded-2xl border border-dashed border-slate-200 bg-white/50 p-8 text-center text-sm text-slate-400">
-              No chapters match “{q}”.
-            </p>
+            <div className="col-span-full rounded-3xl border border-dashed border-indigo-200 bg-white/70 p-10 text-center">
+              <Lock className="mx-auto h-10 w-10 text-indigo-400 mb-2" />
+              <h3 className="text-base font-bold text-slate-800">
+                {q.trim()
+                  ? `No chapters match "${q}"`
+                  : `No Chapters Unlocked Yet for Class ${grade}`}
+              </h3>
+              <p className="mt-1 text-xs text-slate-500 max-w-md mx-auto">
+                {q.trim()
+                  ? "Try searching with a different chapter name or topic keyword."
+                  : "Your teacher hasn't unlocked any chapters for your class yet. As soon as your teacher schedules a chapter in the Teacher Panel, it will appear here with target completion deadlines."}
+              </p>
+            </div>
           )}
         </div>
 

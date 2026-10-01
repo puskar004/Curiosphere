@@ -107,6 +107,8 @@ export async function POST(req: NextRequest) {
         starterCode: finalStarterCode,
         testCases: formattedTestCases,
         authorName: authorName ? String(authorName).trim() : "Teacher",
+        chapterId: body.chapterId ? String(body.chapterId).trim() : undefined,
+        unitNumber: body.unitNumber ? Number(body.unitNumber) : undefined,
       });
 
       return NextResponse.json({ ok: true, problem });

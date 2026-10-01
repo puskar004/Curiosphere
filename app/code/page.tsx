@@ -18,8 +18,19 @@ import {
   BookOpen,
   Trophy,
   Award,
+  Layers,
+  Check,
+  ChevronDown,
+  Lock,
 } from "lucide-react";
 import { CODING_PROBLEMS } from "@/lib/coding-problems";
+import {
+  CODING_CURRICULUM,
+  type CodingUnit,
+  type CodingChapter,
+  type CodingMCQ,
+  type TrackCurriculum,
+} from "@/lib/coding-curriculum";
 import type {
   CodingProblem,
   LanguageId,
@@ -28,17 +39,39 @@ import type {
 } from "@/lib/coding-types";
 import { cn } from "@/lib/utils";
 
+type SupportedTrack = "python" | "c" | "cpp" | "dsa";
+
 function CodingPracticeInner() {
   const sp = useSearchParams();
   const urlProblemId = sp ? sp.get("problem") : null;
+  const urlTrack = sp ? (sp.get("track") as SupportedTrack) : null;
 
+  // Active track (Python, C, C++, DSA)
+  const [activeTrack, setActiveTrack] = useState<SupportedTrack>(
+    urlTrack && ["python", "c", "cpp", "dsa"].includes(urlTrack)
+      ? urlTrack
+      : "python"
+  );
+
+  const curriculum: TrackCurriculum = CODING_CURRICULUM[activeTrack];
+
+  // Active chapter selection
+  const [selectedChapterId, setSelectedChapterId] = useState<string>(
+    curriculum.units[0]?.chapters[0]?.id || "py-ch1"
+  );
+
+  // Solved problems & MCQ scores
   const [problems, setProblems] = useState<CodingProblem[]>(CODING_PROBLEMS);
   const [solvedProblems, setSolvedProblems] = useState<string[]>([]);
-  const [activeTrack, setActiveTrack] = useState<TrackId>("all");
+  const [mcqScores, setMcqScores] = useState<Record<string, { score: number; total: number }>>({});
+
+  // Active problem selection
   const [selectedProblemId, setSelectedProblemId] = useState<string>(
     CODING_PROBLEMS[0]?.id || ""
   );
-  const [selectedLanguage, setSelectedLanguage] = useState<LanguageId>("python");
+  const [selectedLanguage, setSelectedLanguage] = useState<LanguageId>(
+    curriculum.language
+  );
   const [userCodes, setUserCodes] = useState<Record<string, string>>({});
   const [customInput, setCustomInput] = useState<string>("");
   const [showCustomInput, setShowCustomInput] = useState<boolean>(false);
@@ -57,15 +90,26 @@ function CodingPracticeInner() {
   const [mentorLoading, setMentorLoading] = useState<boolean>(false);
   const [mentorResponse, setMentorResponse] = useState<string>("");
 
+  // MCQ Quiz Modal state
+  const [quizUnit, setQuizUnit] = useState<CodingUnit | null>(null);
+  const [quizIndex, setQuizIndex] = useState<number>(0);
+  const [userAnswers, setUserAnswers] = useState<Record<number, number>>({});
+  const [quizCompleted, setQuizCompleted] = useState<boolean>(false);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // 1. Load solved problems from localStorage
+  // 1. Load progress from localStorage
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("sl_solved_problems");
-      if (raw) {
-        const parsed = JSON.parse(raw);
+      const rawSolved = localStorage.getItem("sl_solved_problems");
+      if (rawSolved) {
+        const parsed = JSON.parse(rawSolved);
         if (Array.isArray(parsed)) setSolvedProblems(parsed);
+      }
+      const rawMcq = localStorage.getItem("sl_mcq_scores");
+      if (rawMcq) {
+        const parsed = JSON.parse(rawMcq);
+        if (typeof parsed === "object" && parsed !== null) setMcqScores(parsed);
       }
     } catch {
       // ignore
@@ -82,7 +126,7 @@ function CodingPracticeInner() {
           setProblems(data.problems);
         }
       } catch {
-        // keep fallback CODING_PROBLEMS
+        // fallback
       }
     }
     void loadDynamicProblems();
@@ -94,25 +138,66 @@ function CodingPracticeInner() {
       const hit = problems.find((p) => p.id === urlProblemId);
       if (hit) {
         setSelectedProblemId(hit.id);
-        if (hit.track !== "all") {
-          setActiveTrack(hit.track);
+        if (["python", "c", "cpp", "dsa"].includes(hit.track)) {
+          setActiveTrack(hit.track as SupportedTrack);
         }
       }
     }
   }, [urlProblemId, problems]);
 
-  // Filter problems by active track
-  const filteredProblems = useMemo(() => {
-    if (activeTrack === "all") return problems;
-    return problems.filter((p) => p.track === activeTrack);
-  }, [activeTrack, problems]);
+  // When track changes, update language and default chapter
+  const handleTrackChange = (track: SupportedTrack) => {
+    setActiveTrack(track);
+    const newCurr = CODING_CURRICULUM[track];
+    setSelectedLanguage(newCurr.language);
+    const firstChapter = newCurr.units[0]?.chapters[0]?.id;
+    if (firstChapter) {
+      setSelectedChapterId(firstChapter);
+    }
+    // Select first problem of track
+    const trackProblems = problems.filter((p) => p.track === track);
+    if (trackProblems.length > 0) {
+      setSelectedProblemId(trackProblems[0].id);
+    }
+    setOutput("");
+    setErrorOutput("");
+    setTestResults([]);
+    setAllPassedSuccess(false);
+  };
 
+  // Find currently active chapter
+  const currentChapter: CodingChapter | undefined = useMemo(() => {
+    for (const u of curriculum.units) {
+      const found = u.chapters.find((ch) => ch.id === selectedChapterId);
+      if (found) return found;
+    }
+    return curriculum.units[0]?.chapters[0];
+  }, [curriculum, selectedChapterId]);
+
+  // Track problems (all problems for this track)
+  const trackProblems = useMemo(() => {
+    return problems.filter((p) => p.track === activeTrack);
+  }, [problems, activeTrack]);
+
+  // Chapter-associated problems
+  const chapterProblems = useMemo(() => {
+    if (!currentChapter) return trackProblems;
+    const targetIds = new Set(currentChapter.codingProblemIds);
+    const matched = trackProblems.filter(
+      (p) => targetIds.has(p.id) || p.chapterId === currentChapter.id
+    );
+    // If no direct matches, show track problems so student is never blocked
+    return matched.length > 0 ? matched : trackProblems;
+  }, [currentChapter, trackProblems]);
+
+  // Current problem
   const currentProblem: CodingProblem = useMemo(() => {
     const found = problems.find((p) => p.id === selectedProblemId);
-    if (found) return found;
-    if (filteredProblems.length > 0) return filteredProblems[0];
+    if (found && found.track === activeTrack) return found;
+    if (chapterProblems.length > 0) return chapterProblems[0];
+    if (trackProblems.length > 0) return trackProblems[0];
     return problems[0] || CODING_PROBLEMS[0];
-  }, [selectedProblemId, problems, filteredProblems]);
+  }, [selectedProblemId, problems, activeTrack, chapterProblems, trackProblems]);
 
   // Code key: problemId + language
   const codeKey = `${currentProblem.id}_${selectedLanguage}`;
@@ -192,7 +277,6 @@ function CodingPracticeInner() {
 
         if (data.allPassed && data.testResults.length > 0) {
           setAllPassedSuccess(true);
-          // Mark problem as solved locally
           setSolvedProblems((prev) => {
             const next = Array.from(new Set([...prev, currentProblem.id]));
             try {
@@ -262,50 +346,81 @@ function CodingPracticeInner() {
     }
   };
 
+  // MCQ Quiz Handlers
+  const startQuiz = (unit: CodingUnit) => {
+    setQuizUnit(unit);
+    setQuizIndex(0);
+    setUserAnswers({});
+    setQuizCompleted(false);
+  };
+
+  const handleSelectOption = (questionIdx: number, optionIdx: number) => {
+    if (userAnswers[questionIdx] !== undefined) return; // already answered
+    setUserAnswers((prev) => ({
+      ...prev,
+      [questionIdx]: optionIdx,
+    }));
+  };
+
+  const finishQuiz = () => {
+    if (!quizUnit) return;
+    let score = 0;
+    quizUnit.mcqs.forEach((mcq, idx) => {
+      if (userAnswers[idx] === mcq.correctIndex) {
+        score++;
+      }
+    });
+
+    const key = `${activeTrack}_u${quizUnit.unitNumber}`;
+    const nextScores = {
+      ...mcqScores,
+      [key]: { score, total: quizUnit.mcqs.length },
+    };
+    setMcqScores(nextScores);
+    try {
+      localStorage.setItem("sl_mcq_scores", JSON.stringify(nextScores));
+    } catch {
+      // ignore
+    }
+    setQuizCompleted(true);
+  };
+
   return (
-    <div className="px-4 py-6 lg:px-8 lg:py-8 max-w-[1600px] mx-auto">
-      {/* Top Header */}
+    <div className="px-4 py-6 lg:px-8 lg:py-8 max-w-[1600px] mx-auto space-y-6">
+      {/* Top Track Switcher Bar */}
       <div className="overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 text-white shadow-xl sm:p-8">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-300">
               <Cpu className="h-4 w-4" />
-              Interactive Code Laboratory
+              Modular Coding Academy
             </div>
             <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl text-white">
-              Student Coding Practice
+              {curriculum.title}
             </h1>
             <p className="mt-2 max-w-2xl text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Solve teacher-assigned and curated challenges in Python, C, C++, and DSA. Test your code against automated test cases with instant feedback.
+              {curriculum.tagline}
             </p>
           </div>
 
-          {/* Track selector pills */}
+          {/* 4 Dedicated Track Tabs */}
           <div className="flex flex-wrap gap-2 bg-white/10 p-1.5 rounded-2xl backdrop-blur-md border border-white/10">
             {(
               [
-                ["all", "All Problems"],
                 ["python", "Python 🐍"],
-                ["c", "C ⚡"],
+                ["c", "C Language ⚡"],
                 ["cpp", "C++ 🚀"],
                 ["dsa", "DSA 🧠"],
               ] as const
-            ).map(([id, label]) => (
+            ).map(([tId, label]) => (
               <button
-                key={id}
+                key={tId}
                 type="button"
-                onClick={() => {
-                  setActiveTrack(id);
-                  const matching =
-                    id === "all" ? problems : problems.filter((p) => p.track === id);
-                  if (matching.length > 0) {
-                    setSelectedProblemId(matching[0].id);
-                  }
-                }}
+                onClick={() => handleTrackChange(tId)}
                 className={cn(
-                  "rounded-xl px-3.5 py-1.5 text-xs font-bold transition",
-                  activeTrack === id
-                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                  "rounded-xl px-4 py-2 text-xs font-bold transition",
+                  activeTrack === tId
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30 scale-105"
                     : "text-slate-300 hover:text-white hover:bg-white/10"
                 )}
               >
@@ -316,25 +431,155 @@ function CodingPracticeInner() {
         </div>
       </div>
 
-      {/* Main Split Grid */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-[320px_1fr] xl:grid-cols-[360px_1fr]">
-        {/* Left Column: Problem List & Problem Statement */}
-        <div className="space-y-5">
-          {/* Problem Selector Card */}
-          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-3 px-1">
-              <h2 className="text-xs font-black uppercase tracking-wider text-slate-400">
-                Select Challenge ({filteredProblems.length})
+      {/* Main Split Grid: Modular Syllabus / Chapters vs IDE */}
+      <div className="grid gap-6 lg:grid-cols-[380px_1fr] xl:grid-cols-[420px_1fr]">
+        {/* Left Column: Units, Chapters & Unit MCQs */}
+        <div className="space-y-4">
+          {/* Track Header Card */}
+          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex items-center justify-between">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                Course Syllabus
+              </span>
+              <h2 className="text-sm font-extrabold text-slate-900">
+                3 Units • {curriculum.totalChapters} Chapters
               </h2>
-              {solvedProblems.length > 0 && (
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                  {solvedProblems.length} Solved ✓
-                </span>
-              )}
             </div>
+            <div className="flex items-center gap-1.5">
+              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-bold text-indigo-700 border border-indigo-200">
+                {trackProblems.length} Coding Problems
+              </span>
+            </div>
+          </div>
 
-            <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
-              {filteredProblems.map((prob) => {
+          {/* Units Accordion / List */}
+          <div className="space-y-4 max-h-[820px] overflow-y-auto pr-1">
+            {curriculum.units.map((unit) => {
+              const unitKey = `${activeTrack}_u${unit.unitNumber}`;
+              const unitMcqScore = mcqScores[unitKey];
+              const isUnit3 = unit.unitNumber === 3;
+
+              return (
+                <div
+                  key={unit.unitNumber}
+                  className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3"
+                >
+                  {/* Unit Title & Assessment Button */}
+                  <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded-md bg-indigo-600 px-1.5 py-0.5 text-[9px] font-black uppercase text-white">
+                          Unit {unit.unitNumber}
+                        </span>
+                        <h3 className="text-xs font-black text-slate-900 truncate">
+                          {unit.title.split(": ")[1] || unit.title}
+                        </h3>
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500 line-clamp-1">
+                        {unit.description}
+                      </p>
+                    </div>
+
+                    {/* Unit MCQ Assessment Button */}
+                    <button
+                      type="button"
+                      onClick={() => startQuiz(unit)}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-[11px] font-bold transition shadow-xs",
+                        unitMcqScore
+                          ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                          : isUnit3
+                            ? "bg-amber-500 text-white hover:bg-amber-600 shadow-amber-500/20"
+                            : "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                      )}
+                    >
+                      <Trophy className="h-3 w-3" />
+                      {unitMcqScore
+                        ? `Score: ${unitMcqScore.score}/${unitMcqScore.total} ✓`
+                        : isUnit3
+                          ? "Milestone MCQ Test"
+                          : `Unit ${unit.unitNumber} MCQ`}
+                    </button>
+                  </div>
+
+                  {/* Chapters Inside This Unit */}
+                  <div className="space-y-1.5">
+                    {unit.chapters.map((ch) => {
+                      const isSelected = ch.id === selectedChapterId;
+                      const chProblems = trackProblems.filter(
+                        (p) =>
+                          ch.codingProblemIds.includes(p.id) ||
+                          p.chapterId === ch.id
+                      );
+
+                      return (
+                        <button
+                          key={ch.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedChapterId(ch.id);
+                            if (chProblems.length > 0) {
+                              setSelectedProblemId(chProblems[0].id);
+                              setOutput("");
+                              setErrorOutput("");
+                              setTestResults([]);
+                              setAllPassedSuccess(false);
+                            }
+                          }}
+                          className={cn(
+                            "w-full text-left rounded-2xl p-3 transition flex items-center justify-between gap-3 border",
+                            isSelected
+                              ? "bg-indigo-50/80 border-indigo-200 text-indigo-950 font-bold shadow-xs"
+                              : "border-transparent bg-slate-50/60 hover:bg-slate-100/70 text-slate-700"
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] font-bold text-slate-400">
+                                Ch {ch.chapterNumber}
+                              </span>
+                              <span className="text-xs font-bold truncate">
+                                {ch.title}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-1 text-[9px] text-slate-500">
+                              {ch.topics.slice(0, 2).map((t) => (
+                                <span
+                                  key={t}
+                                  className="rounded bg-white/80 px-1 py-0.2 border border-slate-200/50"
+                                >
+                                  {t}
+                                </span>
+                              ))}
+                              {chProblems.length > 0 && (
+                                <span className="font-semibold text-indigo-600">
+                                  • {chProblems.length} problem{chProblems.length > 1 ? "s" : ""}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <ChevronRight
+                            className={cn(
+                              "h-4 w-4 shrink-0 transition",
+                              isSelected ? "text-indigo-600" : "text-slate-300"
+                            )}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Chapter Problems Quick Picker */}
+          <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
+            <div className="text-xs font-black uppercase tracking-wider text-slate-400">
+              Problems in this Chapter ({chapterProblems.length})
+            </div>
+            <div className="space-y-1 max-h-[160px] overflow-y-auto pr-1">
+              {chapterProblems.map((prob) => {
                 const isSelected = prob.id === currentProblem.id;
                 const isSolved = solvedProblems.includes(prob.id);
                 const isTeacher = prob.source === "teacher";
@@ -351,59 +596,55 @@ function CodingPracticeInner() {
                       setAllPassedSuccess(false);
                     }}
                     className={cn(
-                      "w-full text-left rounded-xl px-3 py-2.5 transition flex items-center justify-between gap-2",
+                      "w-full text-left rounded-xl px-2.5 py-1.5 text-xs transition flex items-center justify-between gap-2",
                       isSelected
-                        ? "bg-indigo-50 border border-indigo-200 text-indigo-950 font-bold"
-                        : "hover:bg-slate-50 text-slate-700"
+                        ? "bg-indigo-600 text-white font-bold"
+                        : "hover:bg-slate-100 text-slate-700"
                     )}
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {isSolved && (
-                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                        )}
-                        {isTeacher && (
-                          <span className="rounded-md bg-violet-100 px-1.5 py-0.2 text-[9px] font-bold text-violet-800 border border-violet-200">
-                            Teacher
-                          </span>
-                        )}
-                        <span className="truncate text-xs font-semibold">
-                          {prob.title}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-400">
-                        <span className="uppercase">{prob.track}</span>
-                        <span>•</span>
+                    <div className="flex items-center gap-1.5 truncate">
+                      {isSolved && (
+                        <CheckCircle2
+                          className={cn(
+                            "h-3.5 w-3.5 shrink-0",
+                            isSelected ? "text-white" : "text-emerald-600"
+                          )}
+                        />
+                      )}
+                      {isTeacher && (
                         <span
                           className={cn(
-                            "capitalize",
-                            prob.difficulty === "easy"
-                              ? "text-emerald-600"
-                              : prob.difficulty === "medium"
-                                ? "text-amber-600"
-                                : "text-rose-600"
+                            "rounded px-1 text-[9px] font-bold uppercase",
+                            isSelected
+                              ? "bg-white/20 text-white"
+                              : "bg-violet-100 text-violet-800"
                           )}
                         >
-                          {prob.difficulty}
+                          Teacher
                         </span>
-                        <span>• {prob.testCases?.length || 0} tests</span>
-                      </div>
-                    </div>
-                    <ChevronRight
-                      className={cn(
-                        "h-4 w-4 shrink-0 transition",
-                        isSelected ? "text-indigo-600" : "text-slate-300"
                       )}
-                    />
+                      <span className="truncate">{prob.title}</span>
+                    </div>
+                    <span
+                      className={cn(
+                        "text-[10px] uppercase font-bold shrink-0",
+                        isSelected ? "text-indigo-200" : "text-slate-400"
+                      )}
+                    >
+                      {prob.difficulty}
+                    </span>
                   </button>
                 );
               })}
             </div>
           </div>
+        </div>
 
-          {/* Problem Statement Card */}
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+        {/* Right Column: Code Editor & Execution Console */}
+        <div className="space-y-4">
+          {/* Problem Statement Header Card */}
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="rounded-lg bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase text-indigo-700">
@@ -426,6 +667,11 @@ function CodingPracticeInner() {
                       👨‍🏫 Teacher Assigned
                     </span>
                   )}
+                  {currentChapter && (
+                    <span className="text-[11px] font-bold text-slate-400">
+                      • Ch {currentChapter.chapterNumber}: {currentChapter.title}
+                    </span>
+                  )}
                 </div>
                 <h2 className="text-lg font-black text-slate-900">
                   {currentProblem.title}
@@ -433,64 +679,35 @@ function CodingPracticeInner() {
               </div>
 
               {solvedProblems.includes(currentProblem.id) && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Solved
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
+                  <CheckCircle2 className="h-4 w-4" /> Solved ✓
                 </span>
               )}
             </div>
 
-            {/* Description */}
+            {/* Description & Constraints Accordion / Block */}
             <div className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap">
               {currentProblem.description}
             </div>
 
-            {/* Constraints & Specs */}
-            <div className="space-y-2 rounded-2xl bg-slate-50 p-3.5 text-xs">
+            <div className="grid gap-2 sm:grid-cols-3 rounded-2xl bg-slate-50 p-3 text-[11px]">
               <div>
-                <span className="font-bold text-slate-700">Input Format: </span>
+                <span className="font-bold text-slate-700">Input: </span>
                 <span className="text-slate-600">{currentProblem.inputFormat}</span>
               </div>
               <div>
-                <span className="font-bold text-slate-700">Output Format: </span>
+                <span className="font-bold text-slate-700">Output: </span>
                 <span className="text-slate-600">{currentProblem.outputFormat}</span>
               </div>
               <div>
                 <span className="font-bold text-slate-700">Constraints: </span>
-                <code className="rounded bg-slate-200/70 px-1.5 py-0.5 font-mono text-[11px] text-slate-800">
+                <code className="rounded bg-slate-200/80 px-1 py-0.2 font-mono text-[10px]">
                   {currentProblem.constraints}
                 </code>
               </div>
             </div>
-
-            {/* Sample I/O */}
-            <div className="space-y-3">
-              <div>
-                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Sample Input (STDIN)
-                </div>
-                <pre className="rounded-xl border border-slate-200 bg-slate-100 p-2.5 font-mono text-xs text-slate-900 whitespace-pre-wrap">
-                  {currentProblem.sampleInput || "(Empty)"}
-                </pre>
-              </div>
-              <div>
-                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  Sample Output (STDOUT)
-                </div>
-                <pre className="rounded-xl border border-slate-200 bg-slate-100 p-2.5 font-mono text-xs text-slate-900 whitespace-pre-wrap">
-                  {currentProblem.sampleOutput || "(Empty)"}
-                </pre>
-              </div>
-              {currentProblem.explanation && (
-                <div className="text-[11px] text-slate-500 italic pt-1">
-                  💡 {currentProblem.explanation}
-                </div>
-              )}
-            </div>
           </div>
-        </div>
 
-        {/* Right Column: Code Editor & Execution Console */}
-        <div className="space-y-4">
           {/* Editor Header Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-900 px-4 py-2.5 text-white shadow-sm">
             <div className="flex items-center gap-2">
@@ -881,6 +1098,232 @@ function CodingPracticeInner() {
           </div>
         </div>
       </div>
+
+      {/* Interactive Unit MCQ Quiz Modal */}
+      {quizUnit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-2xl rounded-3xl border border-indigo-100 bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-5 text-white flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-300">
+                  {curriculum.title} • Unit {quizUnit.unitNumber}
+                </span>
+                <h3 className="text-base font-black text-white">
+                  {quizUnit.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuizUnit(null)}
+                className="text-slate-400 hover:text-white font-bold text-lg px-2"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-5">
+              {!quizCompleted ? (
+                <>
+                  {/* Progress bar */}
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-500">
+                    <span>
+                      Question {quizIndex + 1} of {quizUnit.mcqs.length}
+                    </span>
+                    <span>
+                      {Math.round(((quizIndex + 1) / quizUnit.mcqs.length) * 100)}% Completed
+                    </span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-600 transition-all duration-300"
+                      style={{
+                        width: `${((quizIndex + 1) / quizUnit.mcqs.length) * 100}%`,
+                      }}
+                    />
+                  </div>
+
+                  {/* Active Question */}
+                  {(() => {
+                    const currentMcq: CodingMCQ = quizUnit.mcqs[quizIndex];
+                    const chosenOption = userAnswers[quizIndex];
+                    const isAnswered = chosenOption !== undefined;
+
+                    return (
+                      <div className="space-y-4">
+                        <h4 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
+                          {currentMcq.question}
+                        </h4>
+
+                        {currentMcq.codeSnippet && (
+                          <pre className="rounded-2xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs text-emerald-300 whitespace-pre-wrap">
+                            {currentMcq.codeSnippet}
+                          </pre>
+                        )}
+
+                        {/* Options */}
+                        <div className="space-y-2">
+                          {currentMcq.options.map((opt, optIdx) => {
+                            const isChosen = chosenOption === optIdx;
+                            const isCorrect = optIdx === currentMcq.correctIndex;
+
+                            let btnStyle =
+                              "border-slate-200 bg-slate-50/70 hover:bg-indigo-50/60 hover:border-indigo-200 text-slate-800";
+                            if (isAnswered) {
+                              if (isCorrect) {
+                                btnStyle =
+                                  "border-emerald-500 bg-emerald-50 text-emerald-950 font-bold ring-2 ring-emerald-200";
+                              } else if (isChosen) {
+                                btnStyle =
+                                  "border-rose-400 bg-rose-50 text-rose-950 font-bold";
+                              } else {
+                                btnStyle = "opacity-50 border-slate-200 bg-slate-50 text-slate-400";
+                              }
+                            }
+
+                            return (
+                              <button
+                                key={optIdx}
+                                type="button"
+                                disabled={isAnswered}
+                                onClick={() => handleSelectOption(quizIndex, optIdx)}
+                                className={cn(
+                                  "w-full text-left rounded-2xl border p-3.5 text-xs sm:text-sm transition flex items-center justify-between gap-3",
+                                  btnStyle
+                                )}
+                              >
+                                <span className="flex items-center gap-2.5">
+                                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-xs font-black shadow-xs border">
+                                    {String.fromCharCode(65 + optIdx)}
+                                  </span>
+                                  <span>{opt}</span>
+                                </span>
+                                {isAnswered && isCorrect && (
+                                  <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+                                )}
+                                {isAnswered && isChosen && !isCorrect && (
+                                  <XCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Explanation on Answer */}
+                        {isAnswered && (
+                          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 text-xs text-indigo-950 leading-relaxed animate-in fade-in">
+                            <span className="font-bold">Explanation: </span>
+                            {currentMcq.explanation}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </>
+              ) : (
+                /* Quiz Results Screen */
+                (() => {
+                  let correctCount = 0;
+                  quizUnit.mcqs.forEach((mcq, idx) => {
+                    if (userAnswers[idx] === mcq.correctIndex) correctCount++;
+                  });
+                  const percentage = Math.round(
+                    (correctCount / quizUnit.mcqs.length) * 100
+                  );
+
+                  return (
+                    <div className="text-center py-6 space-y-4">
+                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-amber-100 text-amber-600 shadow-md">
+                        <Trophy className="h-8 w-8" />
+                      </div>
+                      <div>
+                        <h4 className="text-xl font-black text-slate-900">
+                          Unit {quizUnit.unitNumber} Quiz Completed!
+                        </h4>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {curriculum.title}
+                        </p>
+                      </div>
+
+                      <div className="mx-auto max-w-xs rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="text-3xl font-black text-indigo-600">
+                          {correctCount} / {quizUnit.mcqs.length}
+                        </div>
+                        <div className="mt-1 text-xs font-semibold text-slate-600">
+                          Score: {percentage}%
+                        </div>
+                        <div className="mt-2 text-[11px] font-bold text-emerald-600">
+                          {percentage >= 75
+                            ? "🎉 Concept Mastery Verified!"
+                            : "Keep practicing! Review explanations and retry."}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+
+            {/* Modal Footer Controls */}
+            <div className="border-t border-slate-100 bg-slate-50 p-4 flex items-center justify-between">
+              {!quizCompleted ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={quizIndex === 0}
+                    onClick={() => setQuizIndex((prev) => prev - 1)}
+                    className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+
+                  {quizIndex < quizUnit.mcqs.length - 1 ? (
+                    <button
+                      type="button"
+                      disabled={userAnswers[quizIndex] === undefined}
+                      onClick={() => setQuizIndex((prev) => prev + 1)}
+                      className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-40"
+                    >
+                      Next Question
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={userAnswers[quizIndex] === undefined}
+                      onClick={finishQuiz}
+                      className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white shadow-md shadow-emerald-600/25 hover:bg-emerald-700 disabled:opacity-40"
+                    >
+                      Finish Quiz &amp; Save Score
+                    </button>
+                  )}
+                </>
+              ) : (
+                <div className="w-full flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserAnswers({});
+                      setQuizIndex(0);
+                      setQuizCompleted(false);
+                    }}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    Retake Quiz
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuizUnit(null)}
+                    className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white hover:bg-indigo-700"
+                  >
+                    Done &amp; Continue Coding
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -32,6 +32,7 @@ import {
 import MeetFrame from "@/components/MeetFrame";
 import PdfReaderModal from "@/components/PdfReaderModal";
 import { CURRICULUM } from "@/lib/curriculum";
+import { CODING_CURRICULUM } from "@/lib/coding-curriculum";
 import type {
   CodingProblem,
   Difficulty,
@@ -158,6 +159,7 @@ function TeacherInner() {
   // Coding Form fields
   const [qTitle, setQTitle] = useState("");
   const [qTrack, setQTrack] = useState<TrackId>("python");
+  const [qChapterId, setQChapterId] = useState<string>("");
   const [qDifficulty, setQDifficulty] = useState<Difficulty>("easy");
   const [qTags, setQTags] = useState("");
   const [qDescription, setQDescription] = useState("");
@@ -445,6 +447,7 @@ function TeacherInner() {
           },
           testCases: qTestCases.filter((tc) => tc.input || tc.expectedOutput),
           authorName: user?.fullName || user?.firstName || "Teacher",
+          chapterId: qChapterId || undefined,
         }),
       });
       const data = await res.json();
@@ -453,6 +456,7 @@ function TeacherInner() {
       setCodingSuccess(`Published "${qTitle}" successfully to students!`);
       // Reset form
       setQTitle("");
+      setQChapterId("");
       setQDescription("");
       setQTags("");
       setQInputFormat("");
@@ -2136,6 +2140,27 @@ function TeacherInner() {
                           <option value="easy">Easy</option>
                           <option value="medium">Medium</option>
                           <option value="hard">Hard</option>
+                        </select>
+                      </div>
+
+                      <div className="sm:col-span-2 lg:col-span-2">
+                        <label className="text-[11px] font-bold text-slate-600">
+                          Assign to Syllabus Chapter (Optional)
+                        </label>
+                        <select
+                          value={qChapterId}
+                          onChange={(e) => setQChapterId(e.target.value)}
+                          className={cn(field, "w-full mt-1")}
+                        >
+                          <option value="">General Track Challenge</option>
+                          {CODING_CURRICULUM[qTrack as "python" | "c" | "cpp" | "dsa"]?.units?.flatMap(
+                            (u) =>
+                              u.chapters.map((ch) => (
+                                <option key={ch.id} value={ch.id}>
+                                  Unit {u.unitNumber} · Ch {ch.chapterNumber}: {ch.title}
+                                </option>
+                              ))
+                          )}
                         </select>
                       </div>
                     </div>
