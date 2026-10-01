@@ -58,6 +58,35 @@ export type LabCourse = {
   lectures: LabLecture[];
 };
 
+export const CLEAN_LAB_STARTER_CODE: Record<LanguageId, string> = {
+  cpp: `#include <iostream>
+using namespace std;
+
+int main() {
+    // Write your code here
+    
+    return 0;
+}
+`,
+  python: `# Write your code here
+import sys
+
+def main():
+    pass
+
+if __name__ == "__main__":
+    main()
+`,
+  c: `#include <stdio.h>
+
+int main() {
+    // Write your code here
+    
+    return 0;
+}
+`,
+};
+
 export const LAB_COURSES: Record<"c" | "cpp" | "python" | "dsa", LabCourse> = {
   // =========================================================================
   // 1. C++ OBJECT ORIENTED PROGRAMMING LAB (Matches Screenshot)
@@ -164,59 +193,7 @@ int main() {
           sampleInput: "101\n85 90 95",
           sampleOutput: "Total: 270, Average: 90.00",
           explanation: "Total = 85 + 90 + 95 = 270. Average = 270 / 3 = 90.00.",
-          starterCode: {
-            cpp: `#include <iostream>
-#include <iomanip>
-using namespace std;
-
-class Student {
-private:
-    int roll;
-    int m1, m2, m3;
-
-public:
-    void readData() {
-        if (cin >> roll >> m1 >> m2 >> m3) {
-            int total = m1 + m2 + m3;
-            double avg = total / 3.0;
-            cout << "Total: " << total << ", Average: " << fixed << setprecision(2) << avg << endl;
-        }
-    }
-};
-
-int main() {
-    Student s;
-    s.readData();
-    return 0;
-}
-`,
-            python: `import sys
-
-def main():
-    lines = sys.stdin.read().strip().split()
-    if len(lines) >= 4:
-        roll = int(lines[0])
-        m1, m2, m3 = int(lines[1]), int(lines[2]), int(lines[3])
-        total = m1 + m2 + m3
-        avg = total / 3.0
-        print(f"Total: {total}, Average: {avg:.2f}")
-
-if __name__ == "__main__":
-    main()
-`,
-            c: `#include <stdio.h>
-
-int main() {
-    int roll, m1, m2, m3;
-    if (scanf("%d %d %d %d", &roll, &m1, &m2, &m3) == 4) {
-        int total = m1 + m2 + m3;
-        double avg = total / 3.0;
-        printf("Total: %d, Average: %.2f\\n", total, avg);
-    }
-    return 0;
-}
-`,
-          },
+          starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
             { id: "cpp-l1-tc1", input: "101\n85 90 95", expectedOutput: "Total: 270, Average: 90.00", isSecret: false },
             { id: "cpp-l1-tc2", input: "102\n70 80 90", expectedOutput: "Total: 240, Average: 80.00", isSecret: false },
@@ -294,68 +271,7 @@ Rectangle(const Rectangle &other) : width(other.width), height(other.height) {}
           sampleInput: "3 4 5 6",
           sampleOutput: "8 + 10i",
           explanation: "(3 + 4i) + (5 + 6i) = (3+5) + (4+6)i = 8 + 10i.",
-          starterCode: {
-            cpp: `#include <iostream>
-using namespace std;
-
-class Complex {
-public:
-    int real, imag;
-    Complex(int r = 0, int i = 0) : real(r), imag(i) {}
-
-    Complex add(const Complex &c) {
-        return Complex(real + c.real, imag + c.imag);
-    }
-
-    void display() {
-        if (imag >= 0)
-            cout << real << " + " << imag << "i" << endl;
-        else
-            cout << real << " - " << -imag << "i" << endl;
-    }
-};
-
-int main() {
-    int r1, i1, r2, i2;
-    if (cin >> r1 >> i1 >> r2 >> i2) {
-        Complex c1(r1, i1), c2(r2, i2);
-        Complex sum = c1.add(c2);
-        sum.display();
-    }
-    return 0;
-}
-`,
-            python: `import sys
-
-def main():
-    parts = list(map(int, sys.stdin.read().strip().split()))
-    if len(parts) >= 4:
-        r = parts[0] + parts[2]
-        i = parts[1] + parts[3]
-        if i >= 0:
-            print(f"{r} + {i}i")
-        else:
-            print(f"{r} - {-i}i")
-
-if __name__ == "__main__":
-    main()
-`,
-            c: `#include <stdio.h>
-
-int main() {
-    int r1, i1, r2, i2;
-    if (scanf("%d %d %d %d", &r1, &i1, &r2, &i2) == 4) {
-        int r = r1 + r2;
-        int i = i1 + i2;
-        if (i >= 0)
-            printf("%d + %di\\n", r, i);
-        else
-            printf("%d - %di\\n", r, -i);
-    }
-    return 0;
-}
-`,
-          },
+          starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
             { id: "cpp-l2-tc1", input: "3 4 5 6", expectedOutput: "8 + 10i", isSecret: false },
             { id: "cpp-l2-tc2", input: "10 -5 2 3", expectedOutput: "12 - 2i", isSecret: false },
@@ -434,52 +350,7 @@ int main() {
           sampleInput: "Object Oriented Programming in CPP\nFile streams and memory management",
           sampleOutput: "Words: 9, Characters: 62",
           explanation: "There are 9 space-separated words and 62 non-whitespace characters.",
-          starterCode: {
-            cpp: `#include <iostream>
-#include <string>
-#include <sstream>
-#include <cctype>
-using namespace std;
-
-int main() {
-    string word;
-    int words = 0, chars = 0;
-    while (cin >> word) {
-        words++;
-        for (char c : word) {
-            if (!isspace(c)) chars++;
-        }
-    }
-    cout << "Words: " << words << ", Characters: " << chars << endl;
-    return 0;
-}
-`,
-            python: `import sys
-
-def main():
-    text = sys.stdin.read()
-    words = text.split()
-    chars = sum(len(w) for w in words)
-    print(f"Words: {len(words)}, Characters: {chars}")
-
-if __name__ == "__main__":
-    main()
-`,
-            c: `#include <stdio.h>
-#include <string.h>
-
-int main() {
-    char word[1024];
-    int words = 0, chars = 0;
-    while (scanf("%s", word) == 1) {
-        words++;
-        chars += strlen(word);
-    }
-    printf("Words: %d, Characters: %d\\n", words, chars);
-    return 0;
-}
-`,
-          },
+          starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
             { id: "cpp-l18-tc1", input: "Object Oriented Programming in CPP\nFile streams and memory management", expectedOutput: "Words: 9, Characters: 62", isSecret: false },
             { id: "cpp-l18-tc2", input: "Hello World", expectedOutput: "Words: 2, Characters: 10", isSecret: false },
@@ -572,71 +443,7 @@ If the array is sorted, we place one pointer at the start and one at the end, mo
           sampleInput: "4 9\n2 7 11 15",
           sampleOutput: "0 1",
           explanation: "nums[0] + nums[1] = 2 + 7 = 9.",
-          starterCode: {
-            python: `import sys
-
-def solve():
-    lines = sys.stdin.read().strip().split()
-    if not lines:
-        return
-    n = int(lines[0])
-    target = int(lines[1])
-    nums = [int(x) for x in lines[2:2+n]]
-    
-    seen = {}
-    for i, num in enumerate(nums):
-        comp = target - num
-        if comp in seen:
-            print(f"{seen[comp]} {i}")
-            return
-        seen[num] = i
-
-if __name__ == "__main__":
-    solve()
-`,
-            cpp: `#include <iostream>
-#include <vector>
-#include <unordered_map>
-using namespace std;
-
-int main() {
-    int n, target;
-    if (cin >> n >> target) {
-        vector<int> nums(n);
-        unordered_map<int, int> seen;
-        for (int i = 0; i < n; i++) {
-            cin >> nums[i];
-            int comp = target - nums[i];
-            if (seen.find(comp) != seen.end()) {
-                cout << seen[comp] << " " << i << endl;
-                return 0;
-            }
-            seen[nums[i]] = i;
-        }
-    }
-    return 0;
-}
-`,
-            c: `#include <stdio.h>
-
-int main() {
-    int n, target;
-    if (scanf("%d %d", &n, &target) == 2) {
-        int arr[1005];
-        for (int i = 0; i < n; i++) scanf("%d", &arr[i]);
-        for (int i = 0; i < n; i++) {
-            for (int j = i + 1; j < n; j++) {
-                if (arr[i] + arr[j] == target) {
-                    printf("%d %d\\n", i, j);
-                    return 0;
-                }
-            }
-        }
-    }
-    return 0;
-}
-`,
-          },
+          starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
             { id: "dsa-l1-tc1", input: "4 9\n2 7 11 15", expectedOutput: "0 1", isSecret: false },
             { id: "dsa-l1-tc2", input: "3 6\n3 2 4", expectedOutput: "1 2", isSecret: false },
@@ -702,80 +509,7 @@ def isValid(s: str) -> bool:
           sampleInput: "()[]{}",
           sampleOutput: "Valid",
           explanation: "All brackets open and close in matching pairs.",
-          starterCode: {
-            python: `import sys
-
-def is_valid(s):
-    stack = []
-    pairs = {')': '(', '}': '{', ']': '['}
-    for ch in s:
-        if ch in pairs.values():
-            stack.append(ch)
-        elif ch in pairs:
-            if not stack or stack.pop() != pairs[ch]:
-                return False
-    return len(stack) == 0
-
-if __name__ == "__main__":
-    line = sys.stdin.read().strip()
-    print("Valid" if is_valid(line) else "Invalid")
-`,
-            cpp: `#include <iostream>
-#include <stack>
-#include <string>
-using namespace std;
-
-bool isValid(const string &s) {
-    stack<char> st;
-    for (char c : s) {
-        if (c == '(' || c == '{' || c == '[') st.push(c);
-        else {
-            if (st.empty()) return false;
-            char top = st.top();
-            st.pop();
-            if ((c == ')' && top != '(') ||
-                (c == '}' && top != '{') ||
-                (c == ']' && top != '[')) return false;
-        }
-    }
-    return st.empty();
-}
-
-int main() {
-    string s;
-    if (cin >> s) {
-        cout << (isValid(s) ? "Valid" : "Invalid") << endl;
-    }
-    return 0;
-}
-`,
-            c: `#include <stdio.h>
-#include <string.h>
-
-int main() {
-    char s[1005];
-    if (scanf("%s", s) == 1) {
-        char stack[1005];
-        int top = -1;
-        int valid = 1;
-        for (int i = 0; s[i]; i++) {
-            if (s[i] == '(' || s[i] == '{' || s[i] == '[') {
-                stack[++top] = s[i];
-            } else {
-                if (top == -1) { valid = 0; break; }
-                char t = stack[top--];
-                if ((s[i] == ')' && t != '(') ||
-                    (s[i] == '}' && t != '{') ||
-                    (s[i] == ']' && t != '[')) { valid = 0; break; }
-            }
-        }
-        if (top != -1) valid = 0;
-        printf("%s\\n", valid ? "Valid" : "Invalid");
-    }
-    return 0;
-}
-`,
-          },
+          starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
             { id: "dsa-l2-tc1", input: "()[]{}", expectedOutput: "Valid", isSecret: false },
             { id: "dsa-l2-tc2", input: "(]", expectedOutput: "Invalid", isSecret: false },
@@ -853,57 +587,7 @@ The slice \`s[::-1]\` uses a step of \`-1\` to produce a reversed copy of the st
           sampleInput: "madam",
           sampleOutput: "True",
           explanation: "'madam' backwards is 'madam'.",
-          starterCode: {
-            python: `import sys
-
-def is_palindrome(s):
-    cleaned = "".join(c.lower() for c in s if c.isalnum())
-    return cleaned == cleaned[::-1]
-
-if __name__ == "__main__":
-    line = sys.stdin.read().strip()
-    print(is_palindrome(line))
-`,
-            cpp: `#include <iostream>
-#include <string>
-#include <cctype>
-using namespace std;
-
-int main() {
-    string s, clean = "";
-    if (getline(cin, s)) {
-        for (char c : s) if (isalnum(c)) clean += tolower(c);
-        int l = 0, r = clean.length() - 1;
-        bool ok = true;
-        while (l < r) {
-            if (clean[l++] != clean[r--]) { ok = false; break; }
-        }
-        cout << (ok ? "True" : "False") << endl;
-    }
-    return 0;
-}
-`,
-            c: `#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
-
-int main() {
-    char s[1005], clean[1005];
-    if (fgets(s, sizeof(s), stdin)) {
-        int k = 0;
-        for (int i = 0; s[i]; i++) {
-            if (isalnum(s[i])) clean[k++] = tolower(s[i]);
-        }
-        int l = 0, r = k - 1, ok = 1;
-        while (l < r) {
-            if (clean[l++] != clean[r--]) { ok = 0; break; }
-        }
-        printf("%s\\n", ok ? "True" : "False");
-    }
-    return 0;
-}
-`,
-          },
+          starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
             { id: "py-l1-tc1", input: "madam", expectedOutput: "True", isSecret: false },
             { id: "py-l1-tc2", input: "hello", expectedOutput: "False", isSecret: false },
@@ -989,51 +673,7 @@ Passing memory addresses allows the function to mutate variables residing in the
           sampleInput: "10 20",
           sampleOutput: "20 10",
           explanation: "10 and 20 are swapped to 20 10.",
-          starterCode: {
-            c: `#include <stdio.h>
-
-void swap(int *a, int *b) {
-    int temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-int main() {
-    int x, y;
-    if (scanf("%d %d", &x, &y) == 2) {
-        swap(&x, &y);
-        printf("%d %d\\n", x, y);
-    }
-    return 0;
-}
-`,
-            cpp: `#include <iostream>
-using namespace std;
-
-void swapVals(int &a, int &b) {
-    int t = a; a = b; b = t;
-}
-
-int main() {
-    int a, b;
-    if (cin >> a >> b) {
-        swapVals(a, b);
-        cout << a << " " << b << endl;
-    }
-    return 0;
-}
-`,
-            python: `import sys
-
-def main():
-    parts = sys.stdin.read().strip().split()
-    if len(parts) >= 2:
-        print(f"{parts[1]} {parts[0]}")
-
-if __name__ == "__main__":
-    main()
-`,
-          },
+          starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
             { id: "c-l1-tc1", input: "10 20", expectedOutput: "20 10", isSecret: false },
             { id: "c-l1-tc2", input: "-5 99", expectedOutput: "99 -5", isSecret: false },

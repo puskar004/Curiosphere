@@ -132,7 +132,8 @@ async function runAiFallback(
   input: string
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  const key = apiKey || process.env.GOOGLE_API_KEY;
+  if (!key) {
     return {
       stdout: "",
       stderr: "Native compiler unavailable and GEMINI_API_KEY not configured.",
@@ -140,9 +141,15 @@ async function runAiFallback(
     };
   }
 
+  const CANDIDATE_MODELS = [
+    "gemini-flash-lite-latest",
+    "gemini-3.8-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+  ];
+
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const genAI = new GoogleGenerativeAI(key);
     const prompt = `You are a high-performance, strictly accurate code execution engine.
 Execute this ${lang} program with the given STDIN input.
 Output ONLY the raw standard output produced by the program, without markdown, without backticks, without any conversational preamble.
@@ -154,8 +161,21 @@ ${code}
 --- STDIN INPUT ---
 ${input}
 `;
-    const res = await model.generateContent(prompt);
-    const text = res.response.text();
+    let text = "";
+    let lastError = "";
+    for (const m of CANDIDATE_MODELS) {
+      try {
+        const model = genAI.getGenerativeModel({ model: m });
+        const res = await model.generateContent(prompt);
+        text = res.response.text();
+        if (text) break;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    if (!text && lastError) {
+      return { stdout: "", stderr: lastError, exitCode: 1 };
+    }
     if (text.startsWith("ERROR:")) {
       return { stdout: "", stderr: text, exitCode: 1 };
     }

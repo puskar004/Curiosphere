@@ -29,7 +29,11 @@ import {
   Award,
   Calendar,
   Flame,
+  Timer,
+  ShieldCheck,
+  AlertCircle,
 } from "lucide-react";
+import MarkdownAnswer from "@/components/MarkdownAnswer";
 import {
   LAB_COURSES,
   type LabCourse,
@@ -100,7 +104,105 @@ function CodingPracticeInner() {
   const [mcqAnswers, setMcqAnswers] = useState<Record<number, number>>({});
   const [mcqSubmitted, setMcqSubmitted] = useState<boolean>(false);
 
+  // Assessment Start Countdown (30-second Timer) State
+  type PendingAssessment = {
+    lectureId: string;
+    itemType: "mcq" | "code";
+    lectureTitle: string;
+    itemTitle: string;
+    details: string;
+  };
+  const [countdownModalOpen, setCountdownModalOpen] = useState<boolean>(false);
+  const [countdownSeconds, setCountdownSeconds] = useState<number>(30);
+  const [pendingAssessment, setPendingAssessment] = useState<PendingAssessment | null>(null);
+  const [startedAssessments, setStartedAssessments] = useState<Set<string>>(new Set());
+  const [assessmentTimeRemaining, setAssessmentTimeRemaining] = useState<number>(45 * 60);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Trigger assessment start with 30-second countdown
+  const triggerAssessmentWithTimer = (
+    lectureId: string,
+    itemType: "mcq" | "code",
+    forceTimer: boolean = false
+  ) => {
+    const lecture = activeLab?.lectures.find((l) => l.id === lectureId);
+    if (!lecture) return;
+
+    const assessKey = `${lectureId}_${itemType}`;
+    if (!forceTimer && startedAssessments.has(assessKey)) {
+      setSelectedLectureId(lectureId);
+      setActiveItemType(itemType);
+      return;
+    }
+
+    const itemTitle =
+      itemType === "mcq"
+        ? `${lecture.title} MCQ Assessment`
+        : lecture.codingProblem.title;
+    const details =
+      itemType === "mcq"
+        ? `${lecture.mcqs.length} Multiple Choice Questions • Timed Assessment`
+        : `Automated Test Cases Evaluation • CodeTantra Judge • ${lecture.codingProblem.difficulty.toUpperCase()}`;
+
+    setPendingAssessment({
+      lectureId,
+      itemType,
+      lectureTitle: lecture.title,
+      itemTitle,
+      details,
+    });
+    setCountdownSeconds(30);
+    setCountdownModalOpen(true);
+  };
+
+  const handleStartAssessmentNow = () => {
+    if (!pendingAssessment) return;
+    const assessKey = `${pendingAssessment.lectureId}_${pendingAssessment.itemType}`;
+    setStartedAssessments((prev) => new Set(prev).add(assessKey));
+    setSelectedLectureId(pendingAssessment.lectureId);
+    setActiveItemType(pendingAssessment.itemType);
+    setCountdownModalOpen(false);
+    setPendingAssessment(null);
+    setAssessmentTimeRemaining(45 * 60);
+    setOutput("");
+    setErrorOutput("");
+    setTestResults([]);
+    setAllPassedSuccess(false);
+  };
+
+  const handleCancelCountdown = () => {
+    setCountdownModalOpen(false);
+    setPendingAssessment(null);
+  };
+
+  // 30s countdown effect
+  useEffect(() => {
+    if (!countdownModalOpen) return;
+    if (countdownSeconds <= 0) {
+      handleStartAssessmentNow();
+      return;
+    }
+    const timer = setInterval(() => {
+      setCountdownSeconds((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [countdownModalOpen, countdownSeconds, pendingAssessment]);
+
+  // In-assessment countdown timer
+  useEffect(() => {
+    if (activeItemType === "note") return;
+    const timer = setInterval(() => {
+      setAssessmentTimeRemaining((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activeItemType]);
+
+  const formatExamTime = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
 
   // Load completed items from localStorage
   useEffect(() => {
@@ -441,18 +543,33 @@ function CodingPracticeInner() {
                 </div>
 
                 {/* Open Lab CTA */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveLabId(course.id);
-                    setSelectedLectureId(course.lectures[0].id);
-                    setActiveItemType("code");
-                  }}
-                  className="w-full rounded-2xl bg-slate-900 hover:bg-indigo-600 text-white py-2.5 px-4 text-xs font-bold transition flex items-center justify-center gap-2 shadow-xs group-hover:shadow-md"
-                >
-                  <span>Enter Lab Workspace</span>
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveLabId(course.id);
+                      setSelectedLectureId(course.lectures[0].id);
+                      setActiveItemType("note");
+                    }}
+                    className="w-full rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 py-2.5 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
+                  >
+                    <BookOpen className="h-3.5 w-3.5 text-indigo-600" />
+                    <span>Study Notes</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveLabId(course.id);
+                      setSelectedLectureId(course.lectures[0].id);
+                      triggerAssessmentWithTimer(course.lectures[0].id, "code");
+                    }}
+                    className="w-full rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/20"
+                  >
+                    <Timer className="h-3.5 w-3.5" />
+                    <span>Start Test (30s)</span>
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -607,10 +724,7 @@ function CodingPracticeInner() {
                     {/* Item 2: MCQ Assessment */}
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedLectureId(lecture.id);
-                        setActiveItemType("mcq");
-                      }}
+                      onClick={() => triggerAssessmentWithTimer(lecture.id, "mcq")}
                       className={cn(
                         "w-full text-left rounded-2xl p-2.5 text-xs transition flex items-center justify-between gap-2.5",
                         isSelectedLecture && activeItemType === "mcq"
@@ -642,14 +756,7 @@ function CodingPracticeInner() {
                     {/* Item 3: Coding Problem (CodeTantra IDE) */}
                     <button
                       type="button"
-                      onClick={() => {
-                        setSelectedLectureId(lecture.id);
-                        setActiveItemType("code");
-                        setOutput("");
-                        setErrorOutput("");
-                        setTestResults([]);
-                        setAllPassedSuccess(false);
-                      }}
+                      onClick={() => triggerAssessmentWithTimer(lecture.id, "code")}
                       className={cn(
                         "w-full text-left rounded-2xl p-2.5 text-xs transition flex items-center justify-between gap-2.5",
                         isSelectedLecture && activeItemType === "code"
@@ -709,11 +816,12 @@ function CodingPracticeInner() {
                     type="button"
                     onClick={() => {
                       markItemCompleted(`${currentLecture.id}_note`);
-                      setActiveItemType("mcq");
+                      triggerAssessmentWithTimer(currentLecture.id, "mcq");
                     }}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 shadow-sm transition"
                   >
-                    <span>Proceed to MCQ</span>
+                    <Timer className="h-3.5 w-3.5" />
+                    <span>Start MCQ (30s Timer)</span>
                     <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 </div>
@@ -776,11 +884,12 @@ function CodingPracticeInner() {
                   type="button"
                   onClick={() => {
                     markItemCompleted(`${currentLecture.id}_note`);
-                    setActiveItemType("mcq");
+                    triggerAssessmentWithTimer(currentLecture.id, "mcq");
                   }}
                   className="rounded-2xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-indigo-700 shadow-md shadow-indigo-600/20 transition flex items-center gap-2"
                 >
-                  <span>Take Lecture MCQ Test</span>
+                  <Timer className="h-4 w-4" />
+                  <span>Take Lecture MCQ Test (30s Timer)</span>
                   <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
@@ -801,7 +910,19 @@ function CodingPracticeInner() {
                     {currentLecture.title} – MCQ Assessment
                   </h2>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-mono font-bold text-emerald-400 shadow-xs">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>⏱️ {formatExamTime(assessmentTimeRemaining)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => triggerAssessmentWithTimer(currentLecture.id, "mcq", true)}
+                    title="Restart assessment with 30s countdown"
+                    className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 transition"
+                  >
+                    <RotateCcw className="h-3 w-3" /> Retake (30s Timer)
+                  </button>
                   <span className="text-xs font-bold text-slate-500">
                     Question {currentMcqIndex + 1} of {currentLecture.mcqs.length}
                   </span>
@@ -913,11 +1034,12 @@ function CodingPracticeInner() {
                     disabled={mcqAnswers[currentMcqIndex] === undefined}
                     onClick={() => {
                       markItemCompleted(`${currentLecture.id}_mcq`);
-                      setActiveItemType("code");
+                      triggerAssessmentWithTimer(currentLecture.id, "code");
                     }}
                     className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-md shadow-emerald-600/25 disabled:opacity-40 flex items-center gap-1.5"
                   >
-                    <span>Complete &amp; Open Coding Problem</span>
+                    <Timer className="h-3.5 w-3.5" />
+                    <span>Complete &amp; Start Coding Problem (30s Timer)</span>
                     <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -956,11 +1078,27 @@ function CodingPracticeInner() {
                     </h2>
                   </div>
 
-                  {completedItems.has(`${currentLecture.id}_code`) && (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3.5 py-1 text-xs font-bold text-emerald-800">
-                      <CheckCircle2 className="h-4 w-4" /> Solved &amp; Accepted ✓
-                    </span>
-                  )}
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-mono font-bold text-emerald-400 shadow-xs">
+                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>⏱️ {formatExamTime(assessmentTimeRemaining)}</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => triggerAssessmentWithTimer(currentLecture.id, "code", true)}
+                      title="Restart coding challenge with 30s countdown"
+                      className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 transition"
+                    >
+                      <RotateCcw className="h-3 w-3" /> Restart Test (30s Timer)
+                    </button>
+
+                    {completedItems.has(`${currentLecture.id}_code`) && (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3.5 py-1 text-xs font-bold text-emerald-800">
+                        <CheckCircle2 className="h-4 w-4" /> Solved &amp; Accepted ✓
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Problem Description */}
@@ -1382,8 +1520,8 @@ function CodingPracticeInner() {
                           Analyzing code with Gemini AI Mentor...
                         </div>
                       ) : mentorResponse ? (
-                        <div className="rounded-2xl border border-violet-100 bg-violet-50/50 p-4 text-xs text-slate-800 whitespace-pre-wrap leading-relaxed">
-                          {mentorResponse}
+                        <div className="rounded-2xl border border-violet-200 bg-violet-50/70 p-5 text-xs text-slate-800 leading-relaxed shadow-xs">
+                          <MarkdownAnswer content={mentorResponse} />
                         </div>
                       ) : (
                         <p className="text-xs text-slate-400 py-3">
@@ -1398,6 +1536,100 @@ function CodingPracticeInner() {
           )}
         </div>
       </div>
+
+      {/* 30-Second Assessment Start Countdown Modal */}
+      {countdownModalOpen && pendingAssessment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-indigo-500/30 bg-gradient-to-b from-slate-900 to-slate-950 p-6 sm:p-8 text-white shadow-2xl space-y-6">
+            <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-indigo-500/20 blur-3xl pointer-events-none" />
+
+            <div className="text-center space-y-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-indigo-400/30 bg-indigo-500/10 px-3.5 py-1 text-xs font-bold text-indigo-300">
+                <span className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
+                Assessment Readiness Verification
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-white">
+                {pendingAssessment.itemTitle}
+              </h3>
+              <p className="text-xs text-slate-400">
+                {pendingAssessment.lectureTitle} • {pendingAssessment.details}
+              </p>
+            </div>
+
+            {/* Circular / Large 30-Second Countdown */}
+            <div className="flex flex-col items-center justify-center py-2">
+              <div className="relative flex items-center justify-center h-36 w-36">
+                <svg className="h-full w-full -rotate-90 transform" viewBox="0 0 120 120">
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="52"
+                    stroke="currentColor"
+                    strokeWidth="8"
+                    fill="transparent"
+                    className="text-slate-800"
+                  />
+                  <circle
+                    cx="60"
+                    cy="60"
+                    r="52"
+                    stroke="currentColor"
+                    strokeWidth="8"
+                    fill="transparent"
+                    strokeDasharray={2 * Math.PI * 52}
+                    strokeDashoffset={2 * Math.PI * 52 * (1 - countdownSeconds / 30)}
+                    strokeLinecap="round"
+                    className="text-indigo-500 transition-all duration-1000 ease-linear"
+                  />
+                </svg>
+                <div className="absolute flex flex-col items-center">
+                  <span className="text-4xl font-black tracking-tight text-white font-mono">
+                    {countdownSeconds.toString().padStart(2, "0")}
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                    Seconds
+                  </span>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-slate-400 text-center">
+                Assessment will start automatically in <span className="text-indigo-400 font-bold">{countdownSeconds}s</span>
+              </p>
+            </div>
+
+            {/* Instructions & Guidelines */}
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2 text-xs text-slate-300">
+              <div className="flex items-center gap-2 font-bold text-slate-200">
+                <ShieldCheck className="h-4 w-4 text-emerald-400" />
+                Assessment Instructions & Guidelines
+              </div>
+              <ul className="list-disc list-inside space-y-1 text-slate-400 text-[11px] leading-relaxed">
+                <li>Read input from standard input (STDIN) and print exact required format.</li>
+                <li>Public and hidden test cases will be validated by CodeTantra Judge.</li>
+                <li>AI Mentor hints and error diagnostics are active if you need guidance.</li>
+              </ul>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                type="button"
+                onClick={handleStartAssessmentNow}
+                className="flex-1 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white py-3 px-4 text-xs font-bold transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
+              >
+                <Play className="h-4 w-4 fill-white" />
+                <span>Start Assessment Now (Skip Wait)</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelCountdown}
+                className="rounded-2xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 py-3 px-5 text-xs font-semibold transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
