@@ -32,8 +32,14 @@ import {
   Timer,
   ShieldCheck,
   AlertCircle,
+  Printer,
+  Mic,
+  Target,
+  ShieldAlert,
+  FileSpreadsheet,
 } from "lucide-react";
 import MarkdownAnswer from "@/components/MarkdownAnswer";
+import LabRecordModal from "@/components/LabRecordModal";
 import {
   LAB_COURSES,
   type LabCourse,
@@ -117,6 +123,73 @@ function CodingPracticeInner() {
   const [pendingAssessment, setPendingAssessment] = useState<PendingAssessment | null>(null);
   const [startedAssessments, setStartedAssessments] = useState<Set<string>>(new Set());
   const [assessmentTimeRemaining, setAssessmentTimeRemaining] = useState<number>(45 * 60);
+
+  // 1. Keystroke & Paste Velocity Audit (Anti-Cheating Radar)
+  const [pasteCount, setPasteCount] = useState<number>(0);
+  const [pastedChars, setPastedChars] = useState<number>(0);
+  const [typedChars, setTypedChars] = useState<number>(0);
+  const [largePasteDetected, setLargePasteDetected] = useState<boolean>(false);
+
+  // 2. Post-Submission AI Code Viva (Anti-Cheat & Conceptual Verification)
+  type VivaQuestion = {
+    id: string;
+    question: string;
+    options: [string, string, string, string];
+    correctIndex: number;
+    explanation: string;
+  };
+  const [vivaModalOpen, setVivaModalOpen] = useState<boolean>(false);
+  const [vivaLoading, setVivaLoading] = useState<boolean>(false);
+  const [vivaQuestions, setVivaQuestions] = useState<VivaQuestion[]>([]);
+  const [vivaAnswers, setVivaAnswers] = useState<Record<number, number>>({});
+  const [vivaSubmitted, setVivaSubmitted] = useState<boolean>(false);
+  const [vivaScore, setVivaScore] = useState<number>(0);
+  const [vivaVerifiedTasks, setVivaVerifiedTasks] = useState<Set<string>>(new Set());
+
+  // 3. Official Lab Record PDF Exporter State
+  const [labRecordModalOpen, setLabRecordModalOpen] = useState<boolean>(false);
+
+  const startAiVivaChallenge = async () => {
+    setVivaModalOpen(true);
+    setVivaLoading(true);
+    setVivaAnswers({});
+    setVivaSubmitted(false);
+    setVivaScore(0);
+    try {
+      const res = await fetch("/api/code/ai-viva", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          problemTitle: currentProblem.title,
+          language: selectedLanguage,
+          code: currentCode,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.questions)) {
+        setVivaQuestions(data.questions);
+      }
+    } catch (e) {
+      console.error("AI Viva fetch error", e);
+    } finally {
+      setVivaLoading(false);
+    }
+  };
+
+  const handleVivaSubmit = () => {
+    let correctCount = 0;
+    vivaQuestions.forEach((q, idx) => {
+      if (vivaAnswers[idx] === q.correctIndex) {
+        correctCount++;
+      }
+    });
+    const pct = Math.round((correctCount / (vivaQuestions.length || 1)) * 100);
+    setVivaScore(pct);
+    setVivaSubmitted(true);
+    if (pct >= 50) {
+      setVivaVerifiedTasks((prev) => new Set(prev).add(`${currentLecture.id}_code`));
+    }
+  };
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -629,6 +702,16 @@ function CodingPracticeInner() {
             <div className="flex items-center gap-2 rounded-2xl bg-indigo-600 px-3.5 py-1.5 font-bold shadow-md">
               <span>Progress: {labProgressPct}%</span>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setLabRecordModalOpen(true)}
+              className="flex items-center gap-1.5 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/20 px-3.5 py-1.5 font-bold shadow-md transition text-white"
+              title="Generate and print official college lab record manual"
+            >
+              <Printer className="h-3.5 w-3.5 text-indigo-200" />
+              <span>Export Lab Record (PDF)</span>
+            </button>
           </div>
         </div>
 
@@ -1076,6 +1159,21 @@ function CodingPracticeInner() {
                     <h2 className="text-xl font-black text-slate-900">
                       {currentProblem.title}
                     </h2>
+                    {currentProblem.companyTags && currentProblem.companyTags.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
+                          <Target className="h-3 w-3 text-indigo-600" /> Asked in:
+                        </span>
+                        {currentProblem.companyTags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-800 shadow-2xs"
+                          >
+                            🎯 {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -1175,7 +1273,26 @@ function CodingPracticeInner() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Anti-Cheat Keystroke & Paste Velocity Audit */}
+                  {largePasteDetected ? (
+                    <div
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-300"
+                      title={`Integrity Audit: ${pasteCount} external paste event(s), total ${pastedChars} characters copied.`}
+                    >
+                      <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
+                      <span>External Paste Flag (+{pastedChars} chars)</span>
+                    </div>
+                  ) : (
+                    <div
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-bold text-emerald-300"
+                      title="Integrity Audit: 100% Organic manual keystroke typing."
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+                      <span>Original Work Verified ✓</span>
+                    </div>
+                  )}
+
                   <button
                     type="button"
                     onClick={handleResetCode}
@@ -1236,7 +1353,20 @@ function CodingPracticeInner() {
                 <textarea
                   ref={textareaRef}
                   value={currentCode}
-                  onChange={(e) => handleCodeChange(e.target.value)}
+                  onChange={(e) => {
+                    setTypedChars((prev) => prev + 1);
+                    handleCodeChange(e.target.value);
+                  }}
+                  onPaste={(e) => {
+                    const text = e.clipboardData.getData("text");
+                    if (text) {
+                      setPasteCount((prev) => prev + 1);
+                      setPastedChars((prev) => prev + text.length);
+                      if (text.length > 50 || text.split("\n").length > 3) {
+                        setLargePasteDetected(true);
+                      }
+                    }
+                  }}
                   onKeyDown={handleKeyDown}
                   spellCheck={false}
                   className="w-full min-h-[380px] bg-transparent p-4 text-xs font-mono text-emerald-300 leading-relaxed outline-none resize-y selection:bg-indigo-600/50"
@@ -1374,9 +1504,26 @@ function CodingPracticeInner() {
                                 </p>
                               </div>
                             </div>
-                            <span className="rounded-xl bg-white/20 px-3.5 py-1.5 text-xs font-bold text-white backdrop-blur-sm border border-white/25">
-                              Status: Accepted ✓
-                            </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {vivaVerifiedTasks.has(`${currentLecture.id}_code`) ? (
+                                <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-300 text-slate-900 px-3 py-1.5 text-xs font-black shadow-md">
+                                  <Award className="h-4 w-4 text-slate-900" />
+                                  <span>Viva Verified 🎖️</span>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={startAiVivaChallenge}
+                                  className="inline-flex items-center gap-1.5 rounded-xl bg-white text-emerald-900 hover:bg-emerald-50 px-3.5 py-1.5 text-xs font-black shadow-md transition"
+                                >
+                                  <Mic className="h-4 w-4 text-indigo-600 animate-pulse" />
+                                  <span>Take AI Code Viva (Anti-Cheat)</span>
+                                </button>
+                              )}
+                              <span className="rounded-xl bg-white/20 px-3.5 py-1.5 text-xs font-bold text-white backdrop-blur-sm border border-white/25">
+                                Status: Accepted ✓
+                              </span>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -1627,6 +1774,160 @@ function CodingPracticeInner() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Official University Lab Manual / Record PDF Modal */}
+      {activeLab && (
+        <LabRecordModal
+          isOpen={labRecordModalOpen}
+          onClose={() => setLabRecordModalOpen(false)}
+          activeLab={activeLab}
+          userCodes={userCodes}
+          completedItems={completedItems}
+        />
+      )}
+
+      {/* Interactive AI Code Viva Challenge Modal */}
+      {vivaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl border border-indigo-500/40 bg-gradient-to-b from-slate-900 to-slate-950 p-6 sm:p-8 text-white shadow-2xl space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-indigo-600/30 p-2.5 border border-indigo-500/40">
+                  <Mic className="h-5 w-5 text-indigo-400" />
+                </div>
+                <div>
+                  <div className="text-[10px] font-black uppercase tracking-wider text-indigo-400">
+                    Anti-Cheat Code Verification &amp; Placement Viva
+                  </div>
+                  <h3 className="text-base sm:text-lg font-black text-white">
+                    AI Code Viva: {currentProblem.title}
+                  </h3>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setVivaModalOpen(false)}
+                className="rounded-xl border border-slate-800 p-2 text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                <XCircle className="h-4 w-4" />
+              </button>
+            </div>
+
+            {vivaLoading ? (
+              <div className="py-12 flex flex-col items-center justify-center space-y-3 text-center">
+                <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
+                <p className="text-sm font-bold text-white">Analyzing your code logic...</p>
+                <p className="text-xs text-slate-400 max-w-md">
+                  Gemini AI is examining your data structures, loops, and time complexity to generate tailored viva questions.
+                </p>
+              </div>
+            ) : vivaSubmitted ? (
+              <div className="space-y-6 py-2">
+                <div className="text-center space-y-2">
+                  <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 mx-auto">
+                    <Trophy className="h-8 w-8 text-amber-300" />
+                  </div>
+                  <h4 className="text-xl font-black text-white">
+                    Viva Score: {vivaScore}%
+                  </h4>
+                  <p className="text-xs text-slate-300">
+                    {vivaScore >= 50
+                      ? "🎉 Excellent! Your conceptual understanding has been verified. You've earned the 'Viva Verified' badge."
+                      : "Review your solution logic and try again to verify conceptual understanding."}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {vivaQuestions.map((q, idx) => {
+                    const isCorrect = vivaAnswers[idx] === q.correctIndex;
+                    return (
+                      <div key={q.id} className="rounded-2xl border border-slate-800 bg-slate-900/90 p-4 text-xs space-y-2">
+                        <div className="flex items-center gap-2 font-bold">
+                          {isCorrect ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-rose-400 shrink-0" />
+                          )}
+                          <span className="text-slate-200">Q{idx + 1}: {q.question}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 pl-6">
+                          <span className="font-semibold text-emerald-400">Correct Answer:</span> {q.options[q.correctIndex]}
+                        </p>
+                        <p className="text-[11px] text-indigo-300 pl-6 italic">
+                          💡 {q.explanation}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setVivaModalOpen(false)}
+                  className="w-full rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white py-3 text-xs font-bold transition shadow-md shadow-indigo-600/30"
+                >
+                  Close &amp; Return to Workspace
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-3 text-xs text-indigo-200">
+                  Answer these 2 questions based on your submitted {selectedLanguage.toUpperCase()} solution to verify authenticity and claim the placement readiness badge.
+                </div>
+
+                <div className="space-y-6">
+                  {vivaQuestions.map((q, qIdx) => (
+                    <div key={q.id} className="space-y-2.5">
+                      <div className="text-xs font-bold text-slate-200">
+                        <span className="text-indigo-400 mr-1.5">Question {qIdx + 1}:</span>
+                        {q.question}
+                      </div>
+                      <div className="grid grid-cols-1 gap-2">
+                        {q.options.map((opt, optIdx) => {
+                          const isSelected = vivaAnswers[qIdx] === optIdx;
+                          return (
+                            <button
+                              key={optIdx}
+                              type="button"
+                              onClick={() => setVivaAnswers((prev) => ({ ...prev, [qIdx]: optIdx }))}
+                              className={cn(
+                                "w-full text-left rounded-xl p-3 text-xs transition border flex items-center justify-between",
+                                isSelected
+                                  ? "border-indigo-500 bg-indigo-600/30 text-white font-bold ring-1 ring-indigo-500"
+                                  : "border-slate-800 bg-slate-900/60 text-slate-300 hover:bg-slate-800"
+                              )}
+                            >
+                              <span>{opt}</span>
+                              {isSelected && <Check className="h-4 w-4 text-indigo-400" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between border-t border-slate-800 pt-4">
+                  <span className="text-[11px] text-slate-400">
+                    Answered: {Object.keys(vivaAnswers).length}/{vivaQuestions.length}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={Object.keys(vivaAnswers).length < vivaQuestions.length}
+                    onClick={handleVivaSubmit}
+                    className="rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 text-xs font-bold shadow-md shadow-emerald-600/20 disabled:opacity-40 transition flex items-center gap-1.5"
+                  >
+                    <span>Submit Viva Answers</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

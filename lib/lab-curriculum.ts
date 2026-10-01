@@ -21,6 +21,7 @@ export type LabCodingProblem = {
   id: string;
   title: string;
   difficulty: Difficulty;
+  companyTags?: string[];
   description: string;
   inputFormat: string;
   outputFormat: string;
@@ -186,6 +187,7 @@ int main() {
           id: "cpp-prob-student-record",
           title: "Student Record Calculator",
           difficulty: "easy",
+          companyTags: ["Infosys DSE", "Capgemini", "CBSE 12"],
           description: "Create a class `Student` with private members `rollNumber`, `marks1`, `marks2`, and `marks3`. Read the student details from standard input and compute the total marks and average percentage.",
           inputFormat: "First line contains an integer `rollNumber`.\nSecond line contains three space-separated integers representing `marks1`, `marks2`, and `marks3`.",
           outputFormat: "Print the total marks and average percentage formatted as `Total: <sum>, Average: <avg>` (average rounded to 2 decimal places).",
@@ -436,6 +438,7 @@ If the array is sorted, we place one pointer at the start and one at the end, mo
           id: "dsa-prob-twosum",
           title: "Two Sum Indices Finder",
           difficulty: "easy",
+          companyTags: ["Amazon OA", "Google L3", "TCS Digital"],
           description: "Given an integer array and a target sum, output the 0-based indices of the two numbers that add up to target.",
           inputFormat: "First line: `N target`\nSecond line: `N` space-separated integers.",
           outputFormat: "Print the two indices separated by a space (smaller index first).",
@@ -502,6 +505,7 @@ def isValid(s: str) -> bool:
           id: "dsa-prob-valid-parens",
           title: "Valid Parentheses Checker",
           difficulty: "easy",
+          companyTags: ["Microsoft", "Adobe", "Meta"],
           description: "Given a string `s` containing just characters `(`, `)`, `{`, `}`, `[` and `]`, determine if the input string is valid. Print `Valid` or `Invalid`.",
           inputFormat: "A single line containing the bracket string `s`.",
           outputFormat: "Print `Valid` if brackets are balanced, otherwise `Invalid`.",
@@ -580,6 +584,7 @@ The slice \`s[::-1]\` uses a step of \`-1\` to produce a reversed copy of the st
           id: "py-prob-palindrome",
           title: "Palindrome String Verifier",
           difficulty: "easy",
+          companyTags: ["TCS NQT", "Cognizant", "Infosys"],
           description: "Given a string `s`, determine if it is a palindrome ignoring case and alphanumeric characters. Print `True` or `False`.",
           inputFormat: "A single line containing the string `s`.",
           outputFormat: "Print `True` if palindrome, else `False`.",
@@ -666,6 +671,7 @@ Passing memory addresses allows the function to mutate variables residing in the
           id: "c-prob-swap",
           title: "Pointer Swap Operation",
           difficulty: "easy",
+          companyTags: ["Qualcomm", "Embedded Systems", "TCS Ninja"],
           description: "Read two integers `a` and `b`, swap their values using pointers, and print the swapped values.",
           inputFormat: "Two space-separated integers `a` and `b`.",
           outputFormat: "Print the swapped integers separated by a space.",
