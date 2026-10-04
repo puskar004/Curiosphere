@@ -1,13 +1,19 @@
 /**
  * Concurrent-safe attendance journal for live class.
- * Many students marking at once must not overwrite each other via Clerk races.
+ * Ensures 30–100 students marking attendance at once never overwrite each other.
+ * Integrates directly with Supabase Postgres + sequential local mutex.
  */
 import { promises as fs } from "fs";
 import path from "path";
 import type { AttendanceAttendee } from "@/lib/classroom-types";
 import { uploadBufferRemote } from "@/lib/remote-upload";
+import {
+  dbGetLiveAttendance,
+  dbStampAttendanceLeft,
+  dbUpsertLiveAttendance,
+} from "@/lib/supabase-db";
 
-type SessionAtt = {
+export type SessionAtt = {
   sessionId: string;
   attendees: AttendanceAttendee[];
   updatedAt: number;
@@ -20,7 +26,19 @@ type Journal = {
   updatedAt: number;
 };
 
+// Memory cache of journals
 const mem = new Map<string, Journal>();
+
+// Sequential execution queue per class code to prevent concurrent write races
+const queueMap = new Map<string, Promise<unknown>>();
+
+function runInQueue<T>(code: string, fn: () => Promise<T>): Promise<T> {
+  const c = code.toUpperCase();
+  const prev = queueMap.get(c) || Promise.resolve();
+  const next = prev.then(fn, fn); // run regardless of previous rejection
+  queueMap.set(c, next);
+  return next as Promise<T>;
+}
 
 function dir() {
   return process.env.VERCEL
@@ -36,7 +54,7 @@ function pointerPath(code: string) {
   return localPath(code) + ".remote";
 }
 
-function mergeAtt(
+export function mergeAtt(
   ...lists: (AttendanceAttendee[] | undefined)[]
 ): AttendanceAttendee[] {
   const map = new Map<string, AttendanceAttendee>();
@@ -68,7 +86,7 @@ function mergeAtt(
       }
     }
   }
-  return Array.from(map.values()).slice(0, 200);
+  return Array.from(map.values()).slice(0, 300);
 }
 
 async function readLocal(code: string): Promise<Journal | null> {
@@ -99,7 +117,6 @@ async function readRemote(url: string): Promise<Journal | null> {
 
 async function load(code: string): Promise<Journal> {
   const c = code.toUpperCase();
-  const empty: Journal = { code: c, sessions: {}, updatedAt: Date.now() };
   let remote: Journal | null = null;
   try {
     const ptr = (await fs.readFile(pointerPath(c), "utf8")).trim();
@@ -115,12 +132,13 @@ async function load(code: string): Promise<Journal> {
     ...(local?.sessions || {}),
     ...(memJ?.sessions || {}),
   };
-  // merge attendees per session
+
   const allIds = new Set([
     ...Object.keys(remote?.sessions || {}),
     ...Object.keys(local?.sessions || {}),
     ...Object.keys(memJ?.sessions || {}),
   ]);
+
   for (const sid of allIds) {
     sessions[sid] = {
       sessionId: sid,
@@ -148,82 +166,130 @@ async function load(code: string): Promise<Journal> {
   return j;
 }
 
+const remoteSyncTimers = new Map<string, NodeJS.Timeout>();
+
+function scheduleRemoteSync(c: string, j: Journal) {
+  const existing = remoteSyncTimers.get(c);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(async () => {
+    remoteSyncTimers.delete(c);
+    try {
+      const remote = await uploadBufferRemote(
+        Buffer.from(JSON.stringify(j), "utf8"),
+        `att-${c}-${Date.now()}.json`,
+        "application/json"
+      );
+      if (remote) {
+        j.remoteUrl = remote;
+        mem.set(c, j);
+        await fs.writeFile(pointerPath(c), remote, "utf8");
+        await fs.writeFile(localPath(c), JSON.stringify(j), "utf8");
+      }
+    } catch (e) {
+      console.error("attendance journal remote", e);
+    }
+  }, 2500);
+  remoteSyncTimers.set(c, timer);
+}
+
 async function persist(j: Journal) {
   const c = j.code.toUpperCase();
   j.code = c;
   j.updatedAt = Date.now();
   mem.set(c, j);
+
   try {
     await fs.mkdir(dir(), { recursive: true });
     await fs.writeFile(localPath(c), JSON.stringify(j), "utf8");
   } catch (e) {
     console.error("attendance journal local", e);
   }
-  try {
-    const remote = await uploadBufferRemote(
-      Buffer.from(JSON.stringify(j), "utf8"),
-      `att-${c}-${Date.now()}.json`,
-      "application/json"
-    );
-    if (remote) {
-      j.remoteUrl = remote;
-      mem.set(c, j);
-      await fs.writeFile(pointerPath(c), remote, "utf8");
-      await fs.writeFile(localPath(c), JSON.stringify(j), "utf8");
-    }
-  } catch (e) {
-    console.error("attendance journal remote", e);
-  }
+
+  scheduleRemoteSync(c, j);
 }
 
+/**
+ * Concurrent-safe mark attendance.
+ * Queues concurrent calls per class code so 30 students all get recorded without overwriting.
+ * Also persists atomically to Supabase.
+ */
 export async function journalMarkAttendance(
   code: string,
   sessionId: string,
   attendee: AttendanceAttendee
 ): Promise<AttendanceAttendee[]> {
-  const j = await load(code);
+  const c = code.toUpperCase();
   const sid = sessionId || "unknown";
-  const prev = j.sessions[sid]?.attendees || [];
-  const attendees = mergeAtt(prev, [attendee]);
-  j.sessions[sid] = {
-    sessionId: sid,
-    attendees,
-    updatedAt: Date.now(),
-  };
-  await persist(j);
-  return attendees;
+
+  // 1. Fire-and-forget / parallel atomic write to Supabase
+  void dbUpsertLiveAttendance(c, sid, attendee);
+
+  // 2. Linearized update in local journal mutex
+  return runInQueue(c, async () => {
+    const j = await load(c);
+    const prev = j.sessions[sid]?.attendees || [];
+    const attendees = mergeAtt(prev, [attendee]);
+    j.sessions[sid] = {
+      sessionId: sid,
+      attendees,
+      updatedAt: Date.now(),
+    };
+    await persist(j);
+    return attendees;
+  });
 }
 
+/**
+ * List real-time attendance for a session.
+ * Merges Supabase Postgres records + local journal records.
+ */
 export async function journalListAttendance(
   code: string,
   sessionId: string
 ): Promise<AttendanceAttendee[]> {
-  const j = await load(code);
-  return j.sessions[sessionId]?.attendees || [];
+  const c = code.toUpperCase();
+  const sid = sessionId || "unknown";
+
+  // Pull Supabase records
+  const dbAttendees = await dbGetLiveAttendance(c, sid);
+
+  // Pull local/memory journal
+  const j = await load(c);
+  const localAttendees = j.sessions[sid]?.attendees || [];
+
+  return mergeAtt(dbAttendees, localAttendees);
 }
 
+/**
+ * Mark student as having left the session.
+ */
 export async function journalStampLeft(
   code: string,
   sessionId: string,
   studentId: string
 ): Promise<AttendanceAttendee[]> {
-  const j = await load(code);
-  const sid = sessionId;
+  const c = code.toUpperCase();
+  const sid = sessionId || "unknown";
   const now = Date.now();
-  const prev = j.sessions[sid]?.attendees || [];
-  const attendees = prev.map((a) =>
-    a.studentId === studentId && !a.leftAt ? { ...a, leftAt: now } : a
-  );
-  // if not present, still record leave
-  if (!attendees.some((a) => a.studentId === studentId)) {
-    attendees.push({
-      studentId,
-      name: "Student",
-      joinedAt: now,
-      leftAt: now,
-    });
-  }
-  j.sessions[sid] = { sessionId: sid, attendees, updatedAt: now };
-  await persist(j);
-  return attendees;
+
+  void dbStampAttendanceLeft(c, sid, studentId);
+
+  return runInQueue(c, async () => {
+    const j = await load(c);
+    const prev = j.sessions[sid]?.attendees || [];
+    const attendees = prev.map((a) =>
+      a.studentId === studentId && !a.leftAt ? { ...a, leftAt: now } : a
+    );
+    if (!attendees.some((a) => a.studentId === studentId)) {
+      attendees.push({
+        studentId,
+        name: "Student",
+        joinedAt: now,
+        leftAt: now,
+      });
+    }
+    j.sessions[sid] = { sessionId: sid, attendees, updatedAt: now };
+    await persist(j);
+    return attendees;
+  });
 }

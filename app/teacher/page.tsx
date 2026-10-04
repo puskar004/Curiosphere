@@ -797,10 +797,9 @@ function TeacherInner() {
 
   const startLive = async (schedule = false) => {
     if (!activeCode) return;
-    if (!meetUrl.trim() || !meetUrl.includes("http")) {
-      setError("Paste a valid Google Meet link first.");
-      return;
-    }
+    const cleanRoomName = `smartlearn-${activeCode.toLowerCase().replace(/[^a-z0-9]/g, "")}-${Date.now().toString(36)}`;
+    const effectiveMeetUrl =
+      meetUrl.trim() || `https://meet.jit.si/${cleanRoomName}`;
     let scheduledAt: number | undefined;
     if (schedule && scheduleLocal) {
       scheduledAt = new Date(scheduleLocal).getTime();
@@ -814,10 +813,10 @@ function TeacherInner() {
     try {
       const data = await apiStartLive(
         activeCode,
-        liveTitle,
-        liveSubject,
+        liveTitle || "Live Class",
+        liveSubject || "General",
         0,
-        meetUrl.trim(),
+        effectiveMeetUrl,
         scheduledAt
       );
       if (!data.ok) throw new Error(data.error || "Could not start live");
@@ -1411,19 +1410,19 @@ function TeacherInner() {
                       <input
                         value={liveTitle}
                         onChange={(e) => setLiveTitle(e.target.value)}
-                        placeholder="Session title"
+                        placeholder="Session title (e.g. Unit 3 Live Class)"
                         className={field}
                       />
                       <input
                         value={liveSubject}
                         onChange={(e) => setLiveSubject(e.target.value)}
-                        placeholder="Subject"
+                        placeholder="Subject (e.g. Data Structures)"
                         className={field}
                       />
                       <input
                         value={meetUrl}
                         onChange={(e) => setMeetUrl(e.target.value)}
-                        placeholder="https://meet.google.com/xxx-xxxx-xxx"
+                        placeholder="Optional: Custom Google Meet link (leave blank for built-in in-app video)"
                         className={`${field} sm:col-span-2`}
                       />
                       <label className="sm:col-span-2 text-[11px] font-semibold text-slate-600">
@@ -1439,32 +1438,21 @@ function TeacherInner() {
                         type="button"
                         onClick={() => void startLive(false)}
                         disabled={busy}
-                        className="rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white"
+                        className="rounded-xl bg-rose-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-rose-600/20 hover:bg-rose-500"
                       >
-                        Go live now
+                        Start In-App Live Class
                       </button>
                       <button
                         type="button"
                         onClick={() => void startLive(true)}
                         disabled={busy || !scheduleLocal}
-                        className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+                        className="rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white disabled:opacity-50 hover:bg-indigo-500"
                       >
                         Schedule meeting
                       </button>
                     </div>
                     <p className="mt-2 text-[11px] text-slate-500">
-                      Create Meet at{" "}
-                      <a
-                        href="https://meet.google.com/new"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-semibold text-indigo-600 underline"
-                      >
-                        meet.google.com/new
-                      </a>{" "}
-                      → paste link. No fixed end time — session runs until you
-                      click <strong>End session</strong>. Students see the LIVE
-                      banner and Meet link the whole time.
+                      ⚡ <strong>Native In-App Live Video:</strong> Students and teachers join directly inside SmartLearn with WebRTC HD video, audio, and screen sharing. Zero external logins required. Leave the meet URL blank to use built-in video automatically.
                     </p>
                   </div>
                 ) : (
@@ -1541,44 +1529,50 @@ function TeacherInner() {
                         {busy ? "Ending…" : "End session"}
                       </button>
                     </div>
-                    {room.liveSession.meetUrl && (
-                      <div className="mt-3">
-                        <MeetFrame
-                          meetUrl={room.liveSession.meetUrl}
-                          title="Teacher · Google Meet"
-                        />
-                        <p className="mt-2 text-[11px] text-slate-500">
-                          Meet link stays for the whole session. Use Google
-                          Meet’s own people controls to remove someone if
-                          needed.
-                        </p>
+                    <div className="mt-3">
+                      <MeetFrame
+                        meetUrl={room.liveSession.meetUrl || ""}
+                        roomCode={room.code}
+                        isTeacher={true}
+                        displayName={user?.fullName || "Teacher"}
+                        title={`Teacher · ${room.liveSession.title}`}
+                        subject={room.liveSession.subject}
+                      />
+                    </div>
+                    <div className="mt-3 rounded-xl border border-white bg-white/80 p-3">
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                        <span>
+                          Live attendees ({room.liveSession.attendees?.length || 0} students)
+                        </span>
+                        <span className="text-[11px] font-normal text-slate-400">
+                          Auto-refreshed in real time
+                        </span>
                       </div>
-                    )}
-                    {(room.liveSession.attendees || []).length > 0 && (
-                      <div className="mt-3 rounded-xl border border-white bg-white/80 p-3">
-                        <div className="text-xs font-bold text-slate-800">
-                          Joined this session
-                        </div>
-                        <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                      {(room.liveSession.attendees || []).length === 0 ? (
+                        <p className="mt-2 text-xs text-slate-500">
+                          No students joined yet. When students open Live Class, their attendance is recorded instantly.
+                        </p>
+                      ) : (
+                        <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
                           {(room.liveSession.attendees || []).map((a) => (
                             <li
                               key={a.studentId + a.joinedAt}
-                              className="flex justify-between text-xs text-slate-600"
+                              className="flex justify-between rounded bg-slate-50 px-2 py-1 text-xs text-slate-600"
                             >
                               <span className="font-semibold text-slate-800">
                                 {a.name}
                               </span>
                               <span className="text-slate-400">
-                                {new Date(a.joinedAt).toLocaleTimeString()}
+                                in {new Date(a.joinedAt).toLocaleTimeString()}
                                 {a.leftAt
                                   ? ` · left ${new Date(a.leftAt).toLocaleTimeString()}`
-                                  : " · in"}
+                                  : " · present"}
                               </span>
                             </li>
                           ))}
                         </ul>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

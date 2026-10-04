@@ -797,10 +797,44 @@ export async function listTeacherClassrooms(
             chapterAssignments: assignList,
           };
 
+          let assignListOut = assignList;
+          let attendanceLogOut = baseRoom.attendanceLog || [];
+          try {
+            const { dbGetAttendanceRecords } = await import("@/lib/supabase-db");
+            const dbRecs = await dbGetAttendanceRecords(room.code);
+            if (dbRecs && dbRecs.length > 0) {
+              const map = new Map<string, AttendanceRecord>();
+              for (const r of [...attendanceLogOut, ...dbRecs]) {
+                if (r?.sessionId && !map.has(r.sessionId)) map.set(r.sessionId, r);
+              }
+              attendanceLogOut = Array.from(map.values()).slice(0, 50);
+            }
+          } catch {
+            // ignore
+          }
+
+          const baseRoomWithLog = {
+            ...baseRoom,
+            attendanceLog: attendanceLogOut,
+          };
+
           const shared = await getClassLive(room.code);
           if (shared?.active) {
+            let activeAttendees = room.liveSession?.attendees || [];
+            try {
+              const { journalListAttendance } = await import(
+                "@/lib/live-attendance-journal"
+              );
+              const jAtt = await journalListAttendance(room.code, shared.id);
+              if (jAtt && jAtt.length > 0) {
+                activeAttendees = mergeAttendees(activeAttendees, jAtt);
+              }
+            } catch {
+              // ignore
+            }
+
             return {
-              ...baseRoom,
+              ...baseRoomWithLog,
               liveSession: {
                 id: shared.id,
                 title: shared.title,
@@ -813,7 +847,7 @@ export async function listTeacherClassrooms(
                 joinUntil: shared.joinUntil || shared.endsAt,
                 scheduledAt: shared.scheduledAt,
                 messages: room.liveSession?.messages || [],
-                attendees: room.liveSession?.attendees || [],
+                attendees: activeAttendees,
                 kickedIds: room.liveSession?.kickedIds,
                 kickReasons: room.liveSession?.kickReasons,
               },
@@ -822,12 +856,12 @@ export async function listTeacherClassrooms(
           // Shared says no live — only clear if Clerk also has no active live
           if (!shared && room.liveSession?.active) {
             // Keep Clerk/cache active live (shared read miss should not kill teacher UI)
-            return baseRoom;
+            return baseRoomWithLog;
           }
           if (shared === null && !room.liveSession?.active) {
-            return { ...baseRoom, liveSession: null };
+            return { ...baseRoomWithLog, liveSession: null };
           }
-          return baseRoom;
+          return baseRoomWithLog;
         })
       );
     } catch {
@@ -1737,6 +1771,9 @@ export async function startLive(
     // Session runs until teacher Ends (soft 12h cap). Join window = 15 min.
     const endsAt = start + LIVE_SOFT_MAX_MS;
     const joinUntil = start + 15 * 60_000;
+    const cleanMeetUrl =
+      meetUrl?.trim() ||
+      `https://meet.jit.si/smartlearn-${code.toLowerCase().replace(/[^a-z0-9]/g, "")}-${now.toString(36)}`;
     const live: LiveSession = {
       id: `live-${now}`,
       title,
@@ -1746,11 +1783,17 @@ export async function startLive(
       joinUntil,
       active: !isScheduled,
       joinCode: makeCode(4),
-      meetUrl: meetUrl?.trim() || undefined,
+      meetUrl: cleanMeetUrl,
       scheduledAt: isScheduled ? scheduledAt : undefined,
       messages: c.liveSession?.messages || [],
       attendees: [],
     };
+    try {
+      const { dbSetRoomLiveSession } = require("@/lib/supabase-db");
+      void dbSetRoomLiveSession(code, live);
+    } catch {
+      // ignore
+    }
     const alerts = pushAlert(c, {
       kind: isScheduled ? "schedule" : "live",
       title: isScheduled ? "Live class scheduled" : "Live class started",
@@ -1851,19 +1894,29 @@ export async function endLive(teacherId: string, code: string) {
 
   // Pull concurrent journal before freeze (all students who marked)
   let journalAtt: AttendanceAttendee[] = [];
+  let sessId = "";
   try {
+    const { getClassLive } = await import("@/lib/class-code-index");
+    const s = await getClassLive(normalized);
+    if (s?.id) sessId = s.id;
+  } catch {
+    // ignore
+  }
+  if (!sessId) {
     const peek = peekMeta(teacherId);
-    const sessId =
+    sessId =
       peek?.classrooms?.find((x) => x.code === normalized)?.liveSession?.id ||
       "";
-    if (sessId) {
+  }
+  if (sessId) {
+    try {
       const { journalListAttendance } = await import(
         "@/lib/live-attendance-journal"
       );
       journalAtt = await journalListAttendance(normalized, sessId);
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
 
   const room = await updateClassroom(teacherId, normalized, (c) => {
@@ -1879,32 +1932,32 @@ export async function endLive(teacherId: string, code: string) {
     const attendees = stampLeft(
       mergeAttendees(journalAtt, sess.attendees, fromLogs)
     );
+    const finalRecord: AttendanceRecord = {
+      id: `att-${sess.id}`,
+      sessionId: sess.id,
+      sessionTitle: sess.title,
+      subject: sess.subject,
+      startedAt: sess.startedAt,
+      endedAt: now,
+      attendees,
+    };
+    try {
+      const { dbSaveAttendanceRecord, dbSetRoomLiveSession } = require("@/lib/supabase-db");
+      void dbSaveAttendanceRecord(normalized, finalRecord);
+      void dbSetRoomLiveSession(normalized, null);
+    } catch {
+      // ignore
+    }
+
     let attendanceLog = (c.attendanceLog || []).map((r) => {
       if (r.sessionId === sess.id) {
-        return {
-          ...r,
-          endedAt: now,
-          attendees: stampLeft(
-            mergeAttendees(attendees, r.attendees)
-          ),
-        };
+        return finalRecord;
       }
       return r;
     });
     // Ensure a closed log exists even if start didn't create one
     if (!attendanceLog.some((r) => r.sessionId === sess.id)) {
-      attendanceLog = [
-        {
-          id: `att-${sess.id}`,
-          sessionId: sess.id,
-          sessionTitle: sess.title,
-          subject: sess.subject,
-          startedAt: sess.startedAt,
-          endedAt: now,
-          attendees,
-        },
-        ...attendanceLog,
-      ].slice(0, 80);
+      attendanceLog = [finalRecord, ...attendanceLog].slice(0, 80);
     }
     return {
       ...c,
@@ -1976,78 +2029,62 @@ export async function markAttendance(
       joinedAt: Date.now(),
     };
 
-    // 1) Journal first — survives concurrent Clerk write races (30–40 students)
+    // 1) Journal first — survives concurrent write races (30–100 students)
     let journalAttendees: AttendanceAttendee[] = [attendee];
     const sessionHint =
-      shared?.id || found.classroom.liveSession?.id || "";
+      shared?.id || found.classroom.liveSession?.id || `live-${code}`;
     try {
       const { journalMarkAttendance } = await import(
         "@/lib/live-attendance-journal"
       );
-      if (sessionHint) {
-        journalAttendees = await journalMarkAttendance(
-          code,
-          sessionHint,
-          attendee
-        );
-      }
+      journalAttendees = await journalMarkAttendance(
+        code,
+        sessionHint,
+        attendee
+      );
     } catch (e) {
       console.error("journalMarkAttendance", e);
     }
 
-    return updateClassroom(found.teacherId, found.classroom.code, (c) => {
-      let sess = c.liveSession;
-      if ((!sess || !sess.active) && shared) {
-        sess = {
-          id: shared.id,
-          title: shared.title || sess?.title || "Live class",
-          subject: shared.subject || sess?.subject || "General",
-          startedAt: shared.startedAt || sess?.startedAt || Date.now(),
-          endsAt:
-            shared.endsAt || sess?.endsAt || Date.now() + 12 * 60 * 60_000,
-          active: true,
-          joinCode: shared.joinCode || sess?.joinCode || "",
-          meetUrl: shared.meetUrl || sess?.meetUrl,
-          messages: sess?.messages || [],
-          attendees: sess?.attendees || [],
-        };
+    // Update in-memory cache directly without slow Clerk write
+    const peek = peekMeta(found.teacherId);
+    if (peek?.classrooms) {
+      const rIdx = peek.classrooms.findIndex((c) => c.code === found.classroom.code);
+      if (rIdx >= 0) {
+        const c = peek.classrooms[rIdx];
+        if (c.liveSession) {
+          c.liveSession.attendees = mergeAttendees(
+            journalAttendees,
+            c.liveSession.attendees || [],
+            [attendee]
+          );
+        }
       }
-      if (!sess?.active) return c;
-      if ((sess.kickedIds || []).includes(studentId)) {
-        return c;
-      }
-      const attendees = mergeAttendees(
-        journalAttendees,
-        sess.attendees,
-        [attendee]
-      );
-      let attendanceLog = (c.attendanceLog || []).map((r) => {
-        if (r.sessionId !== sess!.id) return r;
-        return {
-          ...r,
-          attendees: mergeAttendees(r.attendees, attendees, [attendee]),
-        };
-      });
-      const hasLog = attendanceLog.some((r) => r.sessionId === sess!.id);
-      if (!hasLog) {
-        attendanceLog = [
-          {
-            id: `att-${sess.id}`,
-            sessionId: sess.id,
-            sessionTitle: sess.title,
-            subject: sess.subject,
-            startedAt: sess.startedAt,
-            attendees,
-          } as AttendanceRecord,
-          ...attendanceLog,
-        ].slice(0, 80);
-      }
-      return {
-        ...c,
-        liveSession: { ...sess, attendees },
-        attendanceLog,
-      };
-    });
+    }
+
+    const sess = found.classroom.liveSession || (shared ? {
+      id: shared.id,
+      title: shared.title,
+      subject: shared.subject,
+      startedAt: shared.startedAt,
+      endsAt: shared.endsAt,
+      joinUntil: shared.endsAt,
+      active: true,
+      joinCode: shared.joinCode,
+      meetUrl: shared.meetUrl,
+      messages: [],
+      attendees: journalAttendees,
+    } : null);
+
+    return {
+      ...found.classroom,
+      liveSession: sess
+        ? {
+            ...sess,
+            attendees: journalAttendees,
+          }
+        : null,
+    };
 }
 
 export async function kickFromLive(
@@ -2149,7 +2186,7 @@ export async function leaveAttendance(
   const found = await findClassroomByCode(code);
   if (!found) return null;
   const now = Date.now();
-  const sessId = found.classroom.liveSession?.id || "";
+  const sessId = found.classroom.liveSession?.id || `live-${code}`;
   let journalAtt: AttendanceAttendee[] = [];
   if (sessId) {
     try {
@@ -2161,27 +2198,29 @@ export async function leaveAttendance(
       // ignore
     }
   }
-  return updateClassroom(found.teacherId, found.classroom.code, (c) => {
-    const sess = c.liveSession;
-    if (!sess) return c;
-    const stamp = (list: AttendanceAttendee[]) =>
-      list.map((a) =>
-        a.studentId === studentId && !a.leftAt ? { ...a, leftAt: now } : a
-      );
-    const attendees = mergeAttendees(journalAtt, stamp(sess.attendees || []));
-    const attendanceLog = (c.attendanceLog || []).map((r) => {
-      if (r.sessionId !== sess.id) return r;
-      return {
-        ...r,
-        attendees: mergeAttendees(journalAtt, stamp(r.attendees || [])),
-      };
-    });
-    return {
-      ...c,
-      liveSession: { ...sess, attendees },
-      attendanceLog,
-    };
-  });
+  // Update in-memory cache directly
+  const peek = peekMeta(found.teacherId);
+  if (peek?.classrooms) {
+    const rIdx = peek.classrooms.findIndex((c) => c.code === found.classroom.code);
+    if (rIdx >= 0) {
+      const c = peek.classrooms[rIdx];
+      if (c.liveSession?.attendees) {
+        c.liveSession.attendees = c.liveSession.attendees.map((a) =>
+          a.studentId === studentId && !a.leftAt ? { ...a, leftAt: now } : a
+        );
+      }
+    }
+  }
+
+  return {
+    ...found.classroom,
+    liveSession: found.classroom.liveSession
+      ? {
+          ...found.classroom.liveSession,
+          attendees: journalAtt.length ? journalAtt : found.classroom.liveSession.attendees,
+        }
+      : null,
+  };
 }
 
 export async function pushTeacherRemark(

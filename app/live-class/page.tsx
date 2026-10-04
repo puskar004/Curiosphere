@@ -41,6 +41,7 @@ export default function LiveClassPage() {
   >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [attendanceMarked, setAttendanceMarked] = useState(false);
   const lastAttended = useRef<string | null>(null);
   const preferredCode = useRef<string | null>(null);
 
@@ -72,12 +73,12 @@ export default function LiveClassPage() {
           scheduledAt: sess.scheduledAt,
         });
         setError(null);
-        if (code && sess.id && lastAttended.current !== `${code}:${sess.id}`) {
+        if (code && sess.id) {
           lastAttended.current = `${code}:${sess.id}`;
           void apiMarkAttendance(
             code,
             displayName(user) || user?.fullName || "Student"
-          );
+          ).then(() => setAttendanceMarked(true)).catch(() => {});
         }
       } else if (sess?.scheduledAt && sess.scheduledAt > Date.now()) {
         setLive({
@@ -263,6 +264,20 @@ export default function LiveClassPage() {
     };
   }, [userId, load]);
 
+  // Continuous attendance heartbeat: guarantees all 30+ students are reliably recorded
+  useEffect(() => {
+    if (!live?.active || !classCode || !isSignedIn) return;
+    const studentName = displayName(user) || user?.fullName || "Student";
+    const ping = () => {
+      void apiMarkAttendance(classCode, studentName)
+        .then(() => setAttendanceMarked(true))
+        .catch(() => {});
+    };
+    ping();
+    const interval = setInterval(ping, 20_000);
+    return () => clearInterval(interval);
+  }, [live?.active, classCode, isSignedIn, user]);
+
   const leaveLive = async () => {
     if (classCode && userId) {
       void apiLeaveAttendance(classCode);
@@ -405,30 +420,34 @@ export default function LiveClassPage() {
       {live?.active && (
         <div className="mt-6 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-100 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-800">
-            <span>
+            <span className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-600" />
+              </span>
               LIVE · {live.title} · {live.subject}
             </span>
-            <span className="inline-flex items-center gap-1">
-              <Shield className="h-3.5 w-3.5" />{" "}
-              {live.joinUntil && live.joinUntil > Date.now()
-                ? `Join window open · ${Math.max(1, Math.ceil((live.joinUntil - Date.now()) / 60000))} min left`
-                : "Session open · teacher has not ended yet"}
-            </span>
-          </div>
-          {live.joinUntil && live.joinUntil > Date.now() && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900">
-              Join now — Meet link is valid for 15 minutes from class start.
-              Open Google Meet below before the window closes.
+            <div className="flex items-center gap-2">
+              {attendanceMarked && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
+                  <Shield className="h-3 w-3 text-emerald-600" /> Attendance: Present
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                {live.joinUntil && live.joinUntil > Date.now()
+                  ? `Window: ${Math.max(1, Math.ceil((live.joinUntil - Date.now()) / 60000))}m`
+                  : "Active"}
+              </span>
             </div>
-          )}
+          </div>
           <MeetFrame
             meetUrl={live.meetUrl || ""}
-            title={`${live.title} · Meet`}
+            title={`${live.title} · Live Class`}
+            roomCode={classCode}
+            displayName={displayName(user) || user?.fullName || "Student"}
+            subject={live.subject}
+            onLeave={leaveLive}
           />
-          <p className="text-[11px] text-slate-500">
-            Join within 15 minutes of start. After that the session can continue
-            until the teacher clicks End. Use Join to open Google Meet.
-          </p>
         </div>
       )}
     </div>

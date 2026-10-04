@@ -212,6 +212,26 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    if (action === "liveAttendance") {
+      const code = (sp.get("code") || "").trim().toUpperCase();
+      const sessionId = (sp.get("sessionId") || "").trim();
+      if (!code) {
+        return NextResponse.json({ ok: false, error: "Code required" }, { status: 400 });
+      }
+      try {
+        const { journalListAttendance } = await import(
+          "@/lib/live-attendance-journal"
+        );
+        const attendees = await journalListAttendance(code, sessionId);
+        return NextResponse.json({ ok: true, attendees });
+      } catch (e) {
+        return NextResponse.json({
+          ok: false,
+          error: e instanceof Error ? e.message : "Load failed",
+        });
+      }
+    }
+
     if (action === "joined") {
       // Client may pass localStorage codes so live works even if Clerk join meta lagged
       const extraCodes = (sp.get("codes") || "")
