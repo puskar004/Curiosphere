@@ -1,1936 +1,1967 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect, Suspense } from "react";
+import { useState, useMemo, useRef, useEffect, Suspense, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  ArrowLeft,
-  BookOpen,
-  CheckCircle2,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  Code2,
-  Cpu,
-  Eye,
-  FileCode,
-  FileText,
-  GraduationCap,
-  HelpCircle,
-  Layers,
-  Loader2,
   Play,
+  CheckCircle2,
   RotateCcw,
-  Search,
   Sparkles,
   Terminal,
-  Trophy,
-  XCircle,
-  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Shuffle,
+  Search,
+  FileText,
+  BookOpen,
+  Code2,
   Award,
-  Calendar,
-  Flame,
   Timer,
   ShieldCheck,
-  AlertCircle,
-  Printer,
-  Mic,
-  Target,
   ShieldAlert,
+  Copy,
+  Check,
+  Maximize2,
+  Minimize2,
+  Flame,
+  Pause,
+  X,
   FileSpreadsheet,
+  ThumbsUp,
+  ThumbsDown,
+  Star,
+  Share2,
+  AlertCircle,
+  Loader2,
+  CheckCircle,
+  Send,
+  Zap,
+  ArrowRight,
+  HelpCircle,
+  Layers,
 } from "lucide-react";
-import MarkdownAnswer from "@/components/MarkdownAnswer";
 import LabRecordModal from "@/components/LabRecordModal";
+import { LAB_COURSES, type LabCourse } from "@/lib/lab-curriculum";
 import {
-  LAB_COURSES,
-  type LabCourse,
-  type LabLecture,
-  type LabMCQ,
-  type LabCodingProblem,
-  type LabNote,
-} from "@/lib/lab-curriculum";
-import type {
-  CodingProblem,
-  LanguageId,
-  TestResult,
-} from "@/lib/coding-types";
+  LEETCODE_PROBLEMS,
+  type LeetCodeProblem,
+} from "@/lib/leetcode-problems";
+import type { LanguageId, Difficulty } from "@/lib/coding-types";
 import { cn } from "@/lib/utils";
 
-type LabId = "c" | "cpp" | "python" | "dsa";
-type ItemType = "note" | "mcq" | "code";
+type ConsoleTab = "testcase" | "result";
+type ProblemTab = "description" | "editorial" | "solutions" | "submissions" | "mentor";
 
-function CodingPracticeInner() {
+interface SubmissionRecord {
+  id: string;
+  problemId: string;
+  problemTitle: string;
+  status: "Accepted" | "Wrong Answer" | "Compile Error";
+  language: LanguageId;
+  runtimeMs: number;
+  runtimeBeats: number;
+  memoryMb: number;
+  memoryBeats: number;
+  testsPassed: number;
+  testsTotal: number;
+  timestamp: string;
+}
+
+interface ChatMessage {
+  id: string;
+  sender: "user" | "mentor";
+  text: string;
+  timestamp: string;
+}
+
+function LeetCodeWorkspace() {
   const sp = useSearchParams();
-  const urlLab = sp ? (sp.get("lab") as LabId) : null;
-  const urlLec = sp ? sp.get("lec") : null;
-  const urlItem = sp ? (sp.get("item") as ItemType) : null;
+  const initialProblemSlug = sp ? sp.get("p") || sp.get("problem") : null;
 
-  // Selected Lab: null means Portal Overview Dashboard (Image 3)
-  const [activeLabId, setActiveLabId] = useState<LabId | null>(
-    urlLab && ["c", "cpp", "python", "dsa"].includes(urlLab) ? urlLab : "cpp"
+  // Active Problem
+  const [problemIndex, setProblemIndex] = useState<number>(() => {
+    if (initialProblemSlug) {
+      const idx = LEETCODE_PROBLEMS.findIndex(
+        (p) => p.slug === initialProblemSlug || p.id === initialProblemSlug
+      );
+      if (idx !== -1) return idx;
+    }
+    return 0; // Default: 1. Two Sum
+  });
+
+  const currentProblem: LeetCodeProblem =
+    LEETCODE_PROBLEMS[problemIndex] || LEETCODE_PROBLEMS[0];
+
+  // Active Left Pane Tab
+  const [activeTab, setActiveTab] = useState<ProblemTab>("description");
+
+  // Selected Language
+  const [selectedLanguage, setSelectedLanguage] = useState<LanguageId>(
+    currentProblem.category === "Python"
+      ? "python"
+      : currentProblem.category === "C"
+      ? "c"
+      : "cpp"
   );
 
-  const activeLab: LabCourse | null = activeLabId
-    ? LAB_COURSES[activeLabId]
-    : null;
-
-  // Selected Lecture & Item within the active Lab
-  const [selectedLectureId, setSelectedLectureId] = useState<string>(
-    urlLec || (activeLab ? activeLab.lectures[0].id : "cpp-lec1")
-  );
-  const [activeItemType, setActiveItemType] = useState<ItemType>(
-    urlItem && ["note", "mcq", "code"].includes(urlItem) ? urlItem : "code"
-  );
-
-  // Search filter inside lab
-  const [labSearch, setLabSearch] = useState<string>("");
-
-  // Storage states
-  const [completedItems, setCompletedItems] = useState<Set<string>>(new Set());
+  // Editor Code State (per problem and language)
   const [userCodes, setUserCodes] = useState<Record<string, string>>({});
-  const [selectedLanguage, setSelectedLanguage] = useState<LanguageId>("cpp");
-  const [customInput, setCustomInput] = useState<string>("");
-  const [showCustomInput, setShowCustomInput] = useState<boolean>(false);
+  const editorCode =
+    userCodes[`${currentProblem.id}_${selectedLanguage}`] ??
+    currentProblem.starterCode[selectedLanguage] ??
+    "";
 
-  // Execution state (Coding Problem)
-  const [running, setRunning] = useState<boolean>(false);
-  const [activeConsoleTab, setActiveConsoleTab] = useState<"output" | "tests" | "mentor">("output");
-  const [output, setOutput] = useState<string>("");
-  const [errorOutput, setErrorOutput] = useState<string>("");
-  const [executionTime, setExecutionTime] = useState<number | null>(null);
-  const [testResults, setTestResults] = useState<TestResult[]>([]);
-  const [testsPassedCount, setTestsPassedCount] = useState<number>(0);
-  const [allPassedSuccess, setAllPassedSuccess] = useState<boolean>(false);
-
-  // AI Mentor state
-  const [mentorLoading, setMentorLoading] = useState<boolean>(false);
-  const [mentorResponse, setMentorResponse] = useState<string>("");
-
-  // MCQ state for the active lecture
-  const [currentMcqIndex, setCurrentMcqIndex] = useState<number>(0);
-  const [mcqAnswers, setMcqAnswers] = useState<Record<number, number>>({});
-  const [mcqSubmitted, setMcqSubmitted] = useState<boolean>(false);
-
-  // Assessment Start Countdown (30-second Timer) State
-  type PendingAssessment = {
-    lectureId: string;
-    itemType: "mcq" | "code";
-    lectureTitle: string;
-    itemTitle: string;
-    details: string;
-  };
-  const [countdownModalOpen, setCountdownModalOpen] = useState<boolean>(false);
-  const [countdownSeconds, setCountdownSeconds] = useState<number>(30);
-  const [pendingAssessment, setPendingAssessment] = useState<PendingAssessment | null>(null);
-  const [startedAssessments, setStartedAssessments] = useState<Set<string>>(new Set());
-  const [assessmentTimeRemaining, setAssessmentTimeRemaining] = useState<number>(45 * 60);
-
-  // 1. Keystroke & Paste Velocity Audit (Anti-Cheating Radar)
-  const [pasteCount, setPasteCount] = useState<number>(0);
-  const [pastedChars, setPastedChars] = useState<number>(0);
-  const [typedChars, setTypedChars] = useState<number>(0);
-  const [largePasteDetected, setLargePasteDetected] = useState<boolean>(false);
-
-  // 2. Post-Submission AI Code Viva (Anti-Cheat & Conceptual Verification)
-  type VivaQuestion = {
-    id: string;
-    question: string;
-    options: [string, string, string, string];
-    correctIndex: number;
-    explanation: string;
-  };
-  const [vivaModalOpen, setVivaModalOpen] = useState<boolean>(false);
-  const [vivaLoading, setVivaLoading] = useState<boolean>(false);
-  const [vivaQuestions, setVivaQuestions] = useState<VivaQuestion[]>([]);
-  const [vivaAnswers, setVivaAnswers] = useState<Record<number, number>>({});
-  const [vivaSubmitted, setVivaSubmitted] = useState<boolean>(false);
-  const [vivaScore, setVivaScore] = useState<number>(0);
-  const [vivaVerifiedTasks, setVivaVerifiedTasks] = useState<Set<string>>(new Set());
-
-  // 3. Official Lab Record PDF Exporter State
-  const [labRecordModalOpen, setLabRecordModalOpen] = useState<boolean>(false);
-
-  const startAiVivaChallenge = async () => {
-    setVivaModalOpen(true);
-    setVivaLoading(true);
-    setVivaAnswers({});
-    setVivaSubmitted(false);
-    setVivaScore(0);
-    try {
-      const res = await fetch("/api/code/ai-viva", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          problemTitle: currentProblem.title,
-          language: selectedLanguage,
-          code: currentCode,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok && Array.isArray(data.questions)) {
-        setVivaQuestions(data.questions);
-      }
-    } catch (e) {
-      console.error("AI Viva fetch error", e);
-    } finally {
-      setVivaLoading(false);
-    }
+  const handleCodeChange = (newCode: string) => {
+    setUserCodes((prev) => ({
+      ...prev,
+      [`${currentProblem.id}_${selectedLanguage}`]: newCode,
+    }));
   };
 
-  const handleVivaSubmit = () => {
-    let correctCount = 0;
-    vivaQuestions.forEach((q, idx) => {
-      if (vivaAnswers[idx] === q.correctIndex) {
-        correctCount++;
-      }
-    });
-    const pct = Math.round((correctCount / (vivaQuestions.length || 1)) * 100);
-    setVivaScore(pct);
-    setVivaSubmitted(true);
-    if (pct >= 50) {
-      setVivaVerifiedTasks((prev) => new Set(prev).add(`${currentLecture.id}_code`));
-    }
+  const handleResetCode = () => {
+    const starter = currentProblem.starterCode[selectedLanguage] || "";
+    setUserCodes((prev) => ({
+      ...prev,
+      [`${currentProblem.id}_${selectedLanguage}`]: starter,
+    }));
   };
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Solved status set
+  const [solvedProblemIds, setSolvedProblemIds] = useState<Set<string>>(new Set());
 
-  // Trigger assessment start with 30-second countdown
-  const triggerAssessmentWithTimer = (
-    lectureId: string,
-    itemType: "mcq" | "code",
-    forceTimer: boolean = false
-  ) => {
-    const lecture = activeLab?.lectures.find((l) => l.id === lectureId);
-    if (!lecture) return;
-
-    const assessKey = `${lectureId}_${itemType}`;
-    if (!forceTimer && startedAssessments.has(assessKey)) {
-      setSelectedLectureId(lectureId);
-      setActiveItemType(itemType);
-      return;
-    }
-
-    const itemTitle =
-      itemType === "mcq"
-        ? `${lecture.title} MCQ Assessment`
-        : lecture.codingProblem.title;
-    const details =
-      itemType === "mcq"
-        ? `${lecture.mcqs.length} Multiple Choice Questions • Timed Assessment`
-        : `Automated Test Cases Evaluation • CodeTantra Judge • ${lecture.codingProblem.difficulty.toUpperCase()}`;
-
-    setPendingAssessment({
-      lectureId,
-      itemType,
-      lectureTitle: lecture.title,
-      itemTitle,
-      details,
-    });
-    setCountdownSeconds(30);
-    setCountdownModalOpen(true);
-  };
-
-  const handleStartAssessmentNow = () => {
-    if (!pendingAssessment) return;
-    const assessKey = `${pendingAssessment.lectureId}_${pendingAssessment.itemType}`;
-    setStartedAssessments((prev) => new Set(prev).add(assessKey));
-    setSelectedLectureId(pendingAssessment.lectureId);
-    setActiveItemType(pendingAssessment.itemType);
-    setCountdownModalOpen(false);
-    setPendingAssessment(null);
-    setAssessmentTimeRemaining(45 * 60);
-    setOutput("");
-    setErrorOutput("");
-    setTestResults([]);
-    setAllPassedSuccess(false);
-  };
-
-  const handleCancelCountdown = () => {
-    setCountdownModalOpen(false);
-    setPendingAssessment(null);
-  };
-
-  // 30s countdown effect
-  useEffect(() => {
-    if (!countdownModalOpen) return;
-    if (countdownSeconds <= 0) {
-      handleStartAssessmentNow();
-      return;
-    }
-    const timer = setInterval(() => {
-      setCountdownSeconds((prev) => prev - 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [countdownModalOpen, countdownSeconds, pendingAssessment]);
-
-  // In-assessment countdown timer
-  useEffect(() => {
-    if (activeItemType === "note") return;
-    const timer = setInterval(() => {
-      setAssessmentTimeRemaining((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [activeItemType]);
-
-  const formatExamTime = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  };
-
-  // Load completed items from localStorage
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("sl_lab_completed_items");
-      if (raw) {
-        setCompletedItems(new Set(JSON.parse(raw)));
+      const saved = localStorage.getItem("sl_leetcode_solved");
+      if (saved) {
+        setSolvedProblemIds(new Set(JSON.parse(saved)));
       }
     } catch {
       // ignore
     }
   }, []);
 
-  const markItemCompleted = (itemId: string) => {
-    setCompletedItems((prev) => {
-      const next = new Set(prev).add(itemId);
+  const markProblemSolved = useCallback((problemId: string) => {
+    setSolvedProblemIds((prev) => {
+      const next = new Set(prev).add(problemId);
       try {
-        localStorage.setItem("sl_lab_completed_items", JSON.stringify(Array.from(next)));
+        localStorage.setItem("sl_leetcode_solved", JSON.stringify(Array.from(next)));
       } catch {
         // ignore
       }
       return next;
     });
-  };
+  }, []);
 
-  // Find currently active lecture
-  const currentLecture: LabLecture = useMemo(() => {
-    if (!activeLab) return LAB_COURSES.cpp.lectures[0];
-    const hit = activeLab.lectures.find((l) => l.id === selectedLectureId);
-    return hit || activeLab.lectures[0];
-  }, [activeLab, selectedLectureId]);
+  // Execution & Submissions
+  const [running, setRunning] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [consoleOpen, setConsoleOpen] = useState(true);
+  const [consoleTab, setConsoleTab] = useState<ConsoleTab>("testcase");
 
-  // Sync default language when active lab changes
-  useEffect(() => {
-    if (activeLab) {
-      setSelectedLanguage(activeLab.defaultLanguage);
-      if (!activeLab.lectures.some((l) => l.id === selectedLectureId)) {
-        setSelectedLectureId(activeLab.lectures[0].id);
-      }
-    }
-  }, [activeLabId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Testcase selection
+  const [activeTestCaseIdx, setActiveTestCaseIdx] = useState(0);
+  const [customInputMap, setCustomInputMap] = useState<Record<string, string>>({});
 
-  // Reset MCQ answers when lecture changes
-  useEffect(() => {
-    setCurrentMcqIndex(0);
-    setMcqAnswers({});
-    setMcqSubmitted(false);
-  }, [selectedLectureId]);
+  const currentCustomInput =
+    customInputMap[`${currentProblem.id}_${activeTestCaseIdx}`] ??
+    (currentProblem.testCases[activeTestCaseIdx]?.input || "");
 
-  // Current problem from active lecture
-  const currentProblem: LabCodingProblem = currentLecture.codingProblem;
-
-  // Code key: problemId + language
-  const codeKey = `${currentProblem.id}_${selectedLanguage}`;
-  const currentCode =
-    userCodes[codeKey] !== undefined
-      ? userCodes[codeKey]
-      : currentProblem.starterCode[selectedLanguage] || "";
-
-  const handleCodeChange = (newCode: string) => {
-    setUserCodes((prev) => ({
+  const handleCustomInputChange = (val: string) => {
+    setCustomInputMap((prev) => ({
       ...prev,
-      [codeKey]: newCode,
+      [`${currentProblem.id}_${activeTestCaseIdx}`]: val,
     }));
   };
 
-  const handleResetCode = () => {
-    if (confirm("Reset code to default starter template?")) {
-      handleCodeChange(currentProblem.starterCode[selectedLanguage] || "");
+  // Results State
+  interface RunResultView {
+    isSubmit: boolean;
+    allPassed: boolean;
+    status: "Accepted" | "Wrong Answer" | "Compile Error";
+    runtimeMs: number;
+    runtimeBeats: number;
+    memoryMb: number;
+    memoryBeats: number;
+    testResults: {
+      testCaseId: string;
+      input: string;
+      passed: boolean;
+      actualOutput: string;
+      expectedOutput: string;
+      error?: string;
+      timeMs: number;
+    }[];
+    stdout?: string;
+    stderr?: string;
+  }
+
+  const [lastRunResult, setLastRunResult] = useState<RunResultView | null>(null);
+  const [submissionsList, setSubmissionsList] = useState<SubmissionRecord[]>([]);
+
+  // Timer
+  const [timerRunning, setTimerRunning] = useState(true);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!timerRunning) return;
+    const interval = setInterval(() => {
+      setTimerSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [timerRunning]);
+
+  const formatTimer = (totalSec: number) => {
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Problem List Drawer Modal
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerSearch, setDrawerSearch] = useState("");
+  const [drawerDiffFilter, setDrawerDiffFilter] = useState<string>("ALL");
+  const [drawerCatFilter, setDrawerCatFilter] = useState<string>("ALL");
+
+  // Anti-Cheat Typing & Paste Auditing
+  const [typedChars, setTypedChars] = useState(0);
+  const [pasteCount, setPasteCount] = useState(0);
+  const [pastedChars, setPastedChars] = useState(0);
+  const [largePasteDetected, setLargePasteDetected] = useState(false);
+
+  // Social interactive states
+  const [likes, setLikes] = useState<Record<string, number>>({});
+  const [hasLiked, setHasLiked] = useState<Record<string, boolean>>({});
+  const [isStarred, setIsStarred] = useState<Record<string, boolean>>({});
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+
+  // Lab Record Modal
+  const [labRecordOpen, setLabRecordOpen] = useState(false);
+
+  // AI Mentor Chat
+  const [mentorChat, setMentorChat] = useState<ChatMessage[]>([
+    {
+      id: "initial-1",
+      sender: "mentor",
+      text: `Hello! I'm your AI Mentor for **${currentProblem.title}**. You can ask me for Socratic hints, time-complexity advice, or compiler diagnosis whenever you're stuck!`,
+      timestamp: "Just now",
+    },
+  ]);
+  const [mentorInput, setMentorInput] = useState("");
+  const [mentorLoading, setMentorLoading] = useState(false);
+
+  // Update starter chat when switching problem
+  useEffect(() => {
+    setMentorChat([
+      {
+        id: `init-${currentProblem.id}`,
+        sender: "mentor",
+        text: `Hello! I'm your AI Mentor for **${currentProblem.title}**. You can ask me for Socratic hints, time-complexity advice, or compiler diagnosis whenever you're stuck!`,
+        timestamp: "Just now",
+      },
+    ]);
+  }, [currentProblem.id, currentProblem.title]);
+
+  // Collapsible hints state
+  const [revealedHints, setRevealedHints] = useState<Record<string, boolean>>({});
+
+  const toggleHint = (key: string) => {
+    setRevealedHints((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Textarea ref for Monaco feel & indentation
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const target = e.currentTarget;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      const val = target.value;
+      const newVal = val.substring(0, start) + "    " + val.substring(end);
+      handleCodeChange(newVal);
+      setTimeout(() => {
+        target.selectionStart = target.selectionEnd = start + 4;
+      }, 0);
     }
   };
 
-  // Run with custom input
-  const runCodeCustom = async () => {
+  // RUN CODE (Sample test cases)
+  const handleRunCode = async () => {
+    if (running) return;
     setRunning(true);
-    setActiveConsoleTab("output");
-    setOutput("");
-    setErrorOutput("");
-    setExecutionTime(null);
-    setAllPassedSuccess(false);
+    setIsSubmitting(false);
+    setConsoleOpen(true);
+    setConsoleTab("result");
+
+    const sampleCases = currentProblem.testCases.filter((tc) => !tc.isSecret);
+    const casesToRun = sampleCases.length > 0 ? sampleCases : currentProblem.testCases.slice(0, 2);
+
     try {
       const res = await fetch("/api/code/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           language: selectedLanguage,
-          code: currentCode,
-          input: showCustomInput ? customInput : currentProblem.sampleInput,
+          code: editorCode,
+          testCases: casesToRun,
         }),
       });
       const data = await res.json();
-      if (data.ok) {
-        setOutput(data.stdout || "(No output produced)");
-        setErrorOutput(data.stderr || "");
+
+      if (data.ok && Array.isArray(data.testResults)) {
+        const allPassed = !!data.allPassed;
+        const totalTime = data.testResults.reduce(
+          (acc: number, r: { timeMs?: number }) => acc + (r.timeMs || 8),
+          0
+        );
+        const avgTime = Math.max(4, Math.round(totalTime / data.testResults.length));
+        const beats = Math.min(99.4, Math.max(65.0, 100 - avgTime * 2.5 + Math.random() * 4));
+        const memMb = parseFloat((10.4 + Math.random() * 2.5).toFixed(1));
+        const memBeats = parseFloat((82.0 + Math.random() * 12.0).toFixed(1));
+
+        const mappedResults = data.testResults.map(
+          (
+            r: {
+              testCaseId: string;
+              passed: boolean;
+              actualOutput: string;
+              expectedOutput: string;
+              error?: string;
+              timeMs?: number;
+            },
+            idx: number
+          ) => ({
+            testCaseId: r.testCaseId || `tc-${idx}`,
+            input: casesToRun[idx]?.input || "",
+            passed: !!r.passed,
+            actualOutput: (r.actualOutput || "").trim(),
+            expectedOutput: (r.expectedOutput || "").trim(),
+            error: r.error,
+            timeMs: r.timeMs || 8,
+          })
+        );
+
+        setLastRunResult({
+          isSubmit: false,
+          allPassed,
+          status: allPassed ? "Accepted" : "Wrong Answer",
+          runtimeMs: avgTime,
+          runtimeBeats: parseFloat(beats.toFixed(1)),
+          memoryMb: memMb,
+          memoryBeats: memBeats,
+          testResults: mappedResults,
+        });
       } else {
-        setErrorOutput(data.stderr || data.error || "Execution failed");
+        // Compile or runtime error
+        setLastRunResult({
+          isSubmit: false,
+          allPassed: false,
+          status: "Compile Error",
+          runtimeMs: 0,
+          runtimeBeats: 0,
+          memoryMb: 0,
+          memoryBeats: 0,
+          testResults: [],
+          stderr: data.error || data.stderr || "Compilation failed.",
+        });
       }
-      if (data.timeMs !== undefined) {
-        setExecutionTime(data.timeMs);
-      }
-    } catch (e) {
-      setErrorOutput(e instanceof Error ? e.message : "Network error");
+    } catch (err) {
+      setLastRunResult({
+        isSubmit: false,
+        allPassed: false,
+        status: "Compile Error",
+        runtimeMs: 0,
+        runtimeBeats: 0,
+        memoryMb: 0,
+        memoryBeats: 0,
+        testResults: [],
+        stderr: err instanceof Error ? err.message : "Execution failed.",
+      });
     } finally {
       setRunning(false);
     }
   };
 
-  // Run all test cases (CodeTantra Workflow)
-  const runAllTests = async () => {
+  // SUBMIT CODE (All test cases including hidden)
+  const handleSubmitCode = async () => {
+    if (running) return;
     setRunning(true);
-    setActiveConsoleTab("tests");
-    setTestResults([]);
-    setAllPassedSuccess(false);
+    setIsSubmitting(true);
+    setConsoleOpen(true);
+    setConsoleTab("result");
+
+    const allCases = currentProblem.testCases;
+
     try {
       const res = await fetch("/api/code/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           language: selectedLanguage,
-          code: currentCode,
-          testCases: currentProblem.testCases || [],
+          code: editorCode,
+          testCases: allCases,
         }),
       });
       const data = await res.json();
-      if (data.ok && Array.isArray(data.testResults)) {
-        setTestResults(data.testResults);
-        setTestsPassedCount(data.testsPassed || 0);
 
-        if (data.allPassed && data.testResults.length > 0) {
-          setAllPassedSuccess(true);
-          markItemCompleted(`${currentLecture.id}_code`);
+      if (data.ok && Array.isArray(data.testResults)) {
+        const allPassed = !!data.allPassed;
+        const totalTime = data.testResults.reduce(
+          (acc: number, r: { timeMs?: number }) => acc + (r.timeMs || 6),
+          0
+        );
+        const avgTime = Math.max(3, Math.round(totalTime / data.testResults.length));
+        const beats = Math.min(99.6, Math.max(72.0, 100 - avgTime * 3 + Math.random() * 5));
+        const memMb = parseFloat((12.2 + Math.random() * 2.2).toFixed(1));
+        const memBeats = parseFloat((84.0 + Math.random() * 11.0).toFixed(1));
+
+        const mappedResults = data.testResults.map(
+          (
+            r: {
+              testCaseId: string;
+              passed: boolean;
+              actualOutput: string;
+              expectedOutput: string;
+              error?: string;
+              timeMs?: number;
+            },
+            idx: number
+          ) => ({
+            testCaseId: r.testCaseId || `tc-${idx}`,
+            input: allCases[idx]?.input || "",
+            passed: !!r.passed,
+            actualOutput: (r.actualOutput || "").trim(),
+            expectedOutput: (r.expectedOutput || "").trim(),
+            error: r.error,
+            timeMs: r.timeMs || 6,
+          })
+        );
+
+        const runRes: RunResultView = {
+          isSubmit: true,
+          allPassed,
+          status: allPassed ? "Accepted" : "Wrong Answer",
+          runtimeMs: avgTime,
+          runtimeBeats: parseFloat(beats.toFixed(1)),
+          memoryMb: memMb,
+          memoryBeats: memBeats,
+          testResults: mappedResults,
+        };
+
+        setLastRunResult(runRes);
+
+        // Record Submission in Submissions Tab
+        const passedCount = data.testsPassed || mappedResults.filter((r: { passed: boolean }) => r.passed).length;
+        const newRecord: SubmissionRecord = {
+          id: `sub-${Date.now()}`,
+          problemId: currentProblem.id,
+          problemTitle: currentProblem.title,
+          status: allPassed ? "Accepted" : "Wrong Answer",
+          language: selectedLanguage,
+          runtimeMs: avgTime,
+          runtimeBeats: parseFloat(beats.toFixed(1)),
+          memoryMb: memMb,
+          memoryBeats: memBeats,
+          testsPassed: passedCount,
+          testsTotal: allCases.length,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        };
+
+        setSubmissionsList((prev) => [newRecord, ...prev]);
+
+        if (allPassed) {
+          markProblemSolved(currentProblem.id);
         }
       } else {
-        setErrorOutput(data.error || "Test execution failed");
+        setLastRunResult({
+          isSubmit: true,
+          allPassed: false,
+          status: "Compile Error",
+          runtimeMs: 0,
+          runtimeBeats: 0,
+          memoryMb: 0,
+          memoryBeats: 0,
+          testResults: [],
+          stderr: data.error || data.stderr || "Compilation failed.",
+        });
       }
-    } catch (e) {
-      setErrorOutput(e instanceof Error ? e.message : "Network error");
+    } catch (err) {
+      setLastRunResult({
+        isSubmit: true,
+        allPassed: false,
+        status: "Compile Error",
+        runtimeMs: 0,
+        runtimeBeats: 0,
+        memoryMb: 0,
+        memoryBeats: 0,
+        testResults: [],
+        stderr: err instanceof Error ? err.message : "Execution failed.",
+      });
     } finally {
       setRunning(false);
     }
   };
 
-  // Ask AI Mentor
-  const askAiMentor = async (action: "hint" | "explain-error" | "review") => {
+  // Keyboard Shortcuts: Ctrl+' for Run, Ctrl+Enter for Submit
+  useEffect(() => {
+    const handleGlobalKeys = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "'") {
+        e.preventDefault();
+        handleRunCode();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleSubmitCode();
+      } else if (e.key === "Escape" && drawerOpen) {
+        setDrawerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeys);
+    return () => window.removeEventListener("keydown", handleGlobalKeys);
+  }, [drawerOpen, editorCode, selectedLanguage, currentProblem, running]);
+
+  // Switch Problems
+  const goToProblem = (idx: number) => {
+    if (idx < 0 || idx >= LEETCODE_PROBLEMS.length) return;
+    setProblemIndex(idx);
+    const target = LEETCODE_PROBLEMS[idx];
+    if (target.category === "Python") setSelectedLanguage("python");
+    else if (target.category === "C") setSelectedLanguage("c");
+    else setSelectedLanguage("cpp");
+    setLastRunResult(null);
+    setActiveTestCaseIdx(0);
+    setDrawerOpen(false);
+  };
+
+  const pickRandomProblem = () => {
+    const randomIdx = Math.floor(Math.random() * LEETCODE_PROBLEMS.length);
+    goToProblem(randomIdx);
+  };
+
+  // Filtered Problem List for Drawer
+  const filteredProblems = useMemo(() => {
+    return LEETCODE_PROBLEMS.filter((p) => {
+      const matchSearch =
+        p.title.toLowerCase().includes(drawerSearch.toLowerCase()) ||
+        p.problemNumber.toString().includes(drawerSearch) ||
+        p.tags.some((t) => t.toLowerCase().includes(drawerSearch.toLowerCase()));
+      const matchDiff =
+        drawerDiffFilter === "ALL" || p.difficulty.toUpperCase() === drawerDiffFilter;
+      const matchCat =
+        drawerCatFilter === "ALL" || p.category.toUpperCase() === drawerCatFilter;
+      return matchSearch && matchDiff && matchCat;
+    });
+  }, [drawerSearch, drawerDiffFilter, drawerCatFilter]);
+
+  // AI Mentor Chat submit
+  const sendMentorMessage = async (overridePrompt?: string) => {
+    const msgText = overridePrompt || mentorInput.trim();
+    if (!msgText || mentorLoading) return;
+
+    const userMsg: ChatMessage = {
+      id: `u-${Date.now()}`,
+      sender: "user",
+      text: msgText,
+      timestamp: "Just now",
+    };
+    setMentorChat((prev) => [...prev, userMsg]);
+    if (!overridePrompt) setMentorInput("");
     setMentorLoading(true);
-    setActiveConsoleTab("mentor");
-    setMentorResponse("");
+
     try {
       const res = await fetch("/api/code/ai-mentor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action,
+          action: "hint",
           problemTitle: currentProblem.title,
-          problemDescription: currentProblem.description,
+          problemDescription: `${currentProblem.description}\n\nConstraints: ${currentProblem.constraints.join("; ")}`,
           language: selectedLanguage,
-          code: currentCode,
-          error: errorOutput || undefined,
+          code: editorCode,
+          userQuestion: msgText,
+          error: lastRunResult?.stderr,
         }),
       });
       const data = await res.json();
-      if (data.ok) {
-        setMentorResponse(data.feedback);
-      } else {
-        setMentorResponse(data.error || "Unable to reach AI mentor.");
-      }
-    } catch (e) {
-      setMentorResponse(
-        e instanceof Error ? e.message : "Error contacting AI mentor"
-      );
+      const replyText =
+        data.ok && data.feedback
+          ? data.feedback
+          : "Focus on whether you can solve this using extra space (like a hash map) or by two pointers. Break down the state step by step!";
+
+      const aiMsg: ChatMessage = {
+        id: `m-${Date.now()}`,
+        sender: "mentor",
+        text: replyText,
+        timestamp: "Just now",
+      };
+      setMentorChat((prev) => [...prev, aiMsg]);
+    } catch {
+      setMentorChat((prev) => [
+        ...prev,
+        {
+          id: `m-err-${Date.now()}`,
+          sender: "mentor",
+          text: "I ran into a connection issue, but here's a quick hint: Think about what invariant you need to maintain as you iterate through the input!",
+          timestamp: "Just now",
+        },
+      ]);
     } finally {
       setMentorLoading(false);
     }
   };
 
-  // Keyboard tab handling inside textarea
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Tab") {
-      e.preventDefault();
-      const ta = e.currentTarget;
-      const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      const val = ta.value;
-      const updated = val.substring(0, start) + "    " + val.substring(end);
-      handleCodeChange(updated);
-      setTimeout(() => {
-        ta.selectionStart = ta.selectionEnd = start + 4;
-      }, 0);
+  // Difficulty badge styling
+  const getDiffBadge = (diff: Difficulty) => {
+    switch (diff) {
+      case "easy":
+        return "text-[#00b8a3] bg-[#00b8a3]/10 border-[#00b8a3]/20";
+      case "medium":
+        return "text-[#ffc01e] bg-[#ffc01e]/10 border-[#ffc01e]/20";
+      case "hard":
+        return "text-[#ff375f] bg-[#ff375f]/10 border-[#ff375f]/20";
+      default:
+        return "text-slate-400 bg-slate-800 border-slate-700";
     }
   };
 
-  // Filtered lectures in sidebar
-  const filteredLectures = useMemo(() => {
-    if (!activeLab) return [];
-    if (!labSearch.trim()) return activeLab.lectures;
-    const needle = labSearch.toLowerCase();
-    return activeLab.lectures.filter(
-      (l) =>
-        l.title.toLowerCase().includes(needle) ||
-        l.description.toLowerCase().includes(needle) ||
-        `lecture ${l.lectureNumber}`.includes(needle)
-    );
-  }, [activeLab, labSearch]);
+  // Dummy fallback LabCourse for LabRecordModal
+  const fallbackLabCourse: LabCourse = {
+    id: "cpp",
+    code: "CS201",
+    name: "Data Structures & Algorithms Laboratory",
+    shortTitle: "DSA Lab",
+    category: "Core Lab",
+    icon: "⚡",
+    accentColor: "from-blue-600 to-indigo-600",
+    startDate: "01 Aug 2026",
+    endDate: "30 Nov 2026",
+    totalAssessments: LEETCODE_PROBLEMS.length,
+    defaultLanguage: "cpp",
+    lectures: [],
+  };
 
-  // Overall Lab Progress Calculation
-  const labProgressPct = useMemo(() => {
-    if (!activeLab) return 0;
-    const totalItems = activeLab.lectures.length * 3; // note + mcq + code
-    let done = 0;
-    activeLab.lectures.forEach((l) => {
-      if (completedItems.has(`${l.id}_note`)) done++;
-      if (completedItems.has(`${l.id}_mcq`)) done++;
-      if (completedItems.has(`${l.id}_code`)) done++;
-    });
-    return totalItems ? Math.min(100, Math.round((done / totalItems) * 100)) : 0;
-  }, [activeLab, completedItems]);
-
-  // =========================================================================
-  // VIEW MODE 1: LABS PORTAL OVERVIEW (Matches Screenshot 3)
-  // =========================================================================
-  if (!activeLab) {
-    return (
-      <div className="px-4 py-6 lg:px-8 lg:py-8 max-w-[1600px] mx-auto space-y-8">
-        {/* Header stats bar */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-5">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-              My Labs &amp; Programming Portals
-            </h1>
-            <p className="mt-1 text-xs sm:text-sm text-slate-500">
-              Access scheduled university laboratory sessions, assessments, study guides, and hands-on CodeTantra practice.
-            </p>
+  return (
+    <div className="flex h-screen w-full flex-col bg-[#1a1a1a] text-[#eff0f6] font-sans overflow-hidden select-none">
+      {/* ============================================================== */}
+      {/* 1. LEETCODE TOP NAVIGATION BAR                                 */}
+      {/* ============================================================== */}
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-[#333333] bg-[#1a1a1a] px-3 z-30">
+        {/* Left: LeetCode Brand + Problem List Nav */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* LeetCode Icon Logo */}
+          <div className="flex items-center gap-2 pr-1">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#ffa116] to-[#e08e0b] shadow-sm text-black font-black text-xs">
+              <span className="tracking-tighter">&lt;/&gt;</span>
+            </div>
+            <div className="flex items-center gap-1 font-bold tracking-tight text-white text-sm hidden md:flex">
+              <span>LeetCode</span>
+              <span className="text-[10px] font-mono text-[#ffa116] bg-[#ffa116]/10 px-1 py-0.2 rounded border border-[#ffa116]/20">
+                PRO
+              </span>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 rounded-2xl bg-white border border-slate-200 p-2.5 px-4 shadow-xs">
-              <Layers className="h-4 w-4 text-indigo-600" />
-              <div className="text-xs font-bold text-slate-700">
-                Labs Enrolled: <span className="text-indigo-600">4</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-2xl bg-white border border-slate-200 p-2.5 px-4 shadow-xs">
-              <Trophy className="h-4 w-4 text-amber-500" />
-              <div className="text-xs font-bold text-slate-700">
-                Badges: <span className="text-amber-600">0</span>
-              </div>
-            </div>
+          <div className="h-4 w-[1px] bg-[#333333] hidden sm:block" />
+
+          {/* Problem List Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold text-[#8a8a8a] hover:bg-[#282828] hover:text-white transition"
+          >
+            <Layers className="h-3.5 w-3.5 text-[#ffa116]" />
+            <span className="hidden sm:inline">Problem List</span>
+            <span className="rounded bg-[#333333] px-1.5 py-0.2 text-[10px] font-mono text-[#8a8a8a]">
+              {solvedProblemIds.size}/{LEETCODE_PROBLEMS.length}
+            </span>
+            <ChevronDown className="h-3 w-3" />
+          </button>
+
+          {/* Prev / Next / Random buttons */}
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => goToProblem(problemIndex - 1)}
+              disabled={problemIndex === 0}
+              title="Previous Problem"
+              className="rounded p-1 text-[#8a8a8a] hover:bg-[#282828] hover:text-white disabled:opacity-30 transition"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => goToProblem(problemIndex + 1)}
+              disabled={problemIndex === LEETCODE_PROBLEMS.length - 1}
+              title="Next Problem"
+              className="rounded p-1 text-[#8a8a8a] hover:bg-[#282828] hover:text-white disabled:opacity-30 transition"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={pickRandomProblem}
+              title="Pick Random Problem"
+              className="rounded p-1 text-[#8a8a8a] hover:bg-[#282828] hover:text-white transition"
+            >
+              <Shuffle className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
 
-        {/* Labs Cards Grid (Matches Screenshot 3) */}
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {(Object.values(LAB_COURSES) as LabCourse[]).map((course) => {
-            const totalItems = course.lectures.length * 3;
-            let done = 0;
-            course.lectures.forEach((l) => {
-              if (completedItems.has(`${l.id}_note`)) done++;
-              if (completedItems.has(`${l.id}_mcq`)) done++;
-              if (completedItems.has(`${l.id}_code`)) done++;
-            });
-            const pct = Math.round((done / totalItems) * 100);
+        {/* Center: Run & Submit Actions */}
+        <div className="flex items-center gap-2">
+          {/* Run Code Button (Ctrl + ') */}
+          <button
+            type="button"
+            onClick={handleRunCode}
+            disabled={running}
+            title="Run Code (Ctrl + ')"
+            className="group flex items-center gap-1.5 rounded-md border border-[#3e3e3e] bg-[#282828] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#333333] active:scale-95 transition disabled:opacity-50"
+          >
+            {running && !isSubmitting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#ffa116]" />
+            ) : (
+              <Play className="h-3.5 w-3.5 text-slate-300 fill-slate-300 group-hover:text-white group-hover:fill-white" />
+            )}
+            <span>Run</span>
+            <span className="hidden lg:inline text-[10px] text-[#8a8a8a] font-mono ml-0.5">
+              Ctrl+&#39;
+            </span>
+          </button>
 
-            return (
-              <div
-                key={course.id}
-                className="group relative rounded-3xl border border-slate-200/90 bg-white p-5 shadow-sm hover:shadow-xl hover:border-indigo-300 transition-all duration-200 flex flex-col justify-between space-y-4"
-              >
+          {/* Submit Code Button (Ctrl + Enter) */}
+          <button
+            type="button"
+            onClick={handleSubmitCode}
+            disabled={running}
+            title="Submit Solution (Ctrl + Enter)"
+            className="flex items-center gap-1.5 rounded-md bg-[#2cbb5d] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#28a745] active:scale-95 shadow-sm transition disabled:opacity-50"
+          >
+            {running && isSubmitting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Check className="h-3.5 w-3.5 stroke-[3]" />
+            )}
+            <span>Submit</span>
+            <span className="hidden lg:inline text-[10px] text-white/80 font-mono ml-0.5">
+              Ctrl+↵
+            </span>
+          </button>
+        </div>
+
+        {/* Right: Timer, Anti-cheat, PDF record & Profile */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Session Timer */}
+          <div className="hidden md:flex items-center gap-1.5 rounded-md bg-[#282828] px-2 py-1 text-xs font-mono text-[#8a8a8a]">
+            <Timer className="h-3.5 w-3.5 text-[#ffa116]" />
+            <span className="text-white font-bold">{formatTimer(timerSeconds)}</span>
+            <button
+              type="button"
+              onClick={() => setTimerRunning(!timerRunning)}
+              title={timerRunning ? "Pause timer" : "Resume timer"}
+              className="text-[#8a8a8a] hover:text-white ml-0.5"
+            >
+              {timerRunning ? <Pause className="h-2.5 w-2.5" /> : <Play className="h-2.5 w-2.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setTimerSeconds(0)}
+              title="Reset timer"
+              className="text-[#8a8a8a] hover:text-white"
+            >
+              <RotateCcw className="h-2.5 w-2.5" />
+            </button>
+          </div>
+
+          {/* Organic Typing Anti-Cheat Integrity Pill */}
+          <div
+            className={cn(
+              "hidden xl:flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold border",
+              largePasteDetected
+                ? "bg-amber-950/40 text-amber-300 border-amber-800/40"
+                : "bg-emerald-950/30 text-emerald-300 border-emerald-800/40"
+            )}
+            title={`Audit: ${pasteCount} paste event(s), ${pastedChars} pasted characters, ${typedChars} typed keystrokes.`}
+          >
+            {largePasteDetected ? (
+              <>
+                <ShieldAlert className="h-3 w-3 text-amber-400" />
+                <span>Paste Flag (+{pastedChars})</span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="h-3 w-3 text-emerald-400" />
+                <span>Verified Typing</span>
+              </>
+            )}
+          </div>
+
+          {/* Export Lab Record PDF Button */}
+          <button
+            type="button"
+            onClick={() => setLabRecordOpen(true)}
+            title="Export Lab Practical PDF Report"
+            className="hidden sm:flex items-center gap-1 rounded-md border border-[#3e3e3e] bg-[#282828] px-2.5 py-1 text-xs font-semibold text-[#eff0f6] hover:bg-[#333333] transition"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-[#ffa116]" />
+            <span className="hidden lg:inline">Lab Report</span>
+          </button>
+
+          {/* User Flame Streak */}
+          <div className="flex items-center gap-1 rounded-md bg-[#282828] px-2 py-1 text-xs font-bold text-amber-400">
+            <Flame className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+            <span>7</span>
+          </div>
+        </div>
+      </header>
+
+      {/* ============================================================== */}
+      {/* 2. SPLIT WORKSPACE: LEFT PROBLEM PANE | RIGHT EDITOR PANE       */}
+      {/* ============================================================== */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* ------------------------------------------------------------ */}
+        {/* LEFT PANE: DESCRIPTION / EDITORIAL / SOLUTIONS / MENTOR      */}
+        {/* ------------------------------------------------------------ */}
+        <div className="flex w-full md:w-1/2 flex-col border-r border-[#333333] bg-[#262626]">
+          {/* Tab Navigation */}
+          <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[#333333] bg-[#1a1a1a] px-2 overflow-x-auto no-scrollbar">
+            <button
+              type="button"
+              onClick={() => setActiveTab("description")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap",
+                activeTab === "description"
+                  ? "bg-[#282828] text-white shadow-xs"
+                  : "text-[#8a8a8a] hover:bg-[#282828]/50 hover:text-white"
+              )}
+            >
+              <FileText className="h-3.5 w-3.5 text-blue-400" />
+              <span>Description</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("editorial")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap",
+                activeTab === "editorial"
+                  ? "bg-[#282828] text-white shadow-xs"
+                  : "text-[#8a8a8a] hover:bg-[#282828]/50 hover:text-white"
+              )}
+            >
+              <BookOpen className="h-3.5 w-3.5 text-amber-400" />
+              <span>Editorial</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("solutions")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap",
+                activeTab === "solutions"
+                  ? "bg-[#282828] text-white shadow-xs"
+                  : "text-[#8a8a8a] hover:bg-[#282828]/50 hover:text-white"
+              )}
+            >
+              <Code2 className="h-3.5 w-3.5 text-emerald-400" />
+              <span>Solutions</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("submissions")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap",
+                activeTab === "submissions"
+                  ? "bg-[#282828] text-white shadow-xs"
+                  : "text-[#8a8a8a] hover:bg-[#282828]/50 hover:text-white"
+              )}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 text-[#2cbb5d]" />
+              <span>Submissions</span>
+              {submissionsList.length > 0 && (
+                <span className="rounded-full bg-[#333333] px-1.5 text-[10px] text-[#8a8a8a]">
+                  {submissionsList.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("mentor")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition whitespace-nowrap",
+                activeTab === "mentor"
+                  ? "bg-[#282828] text-white shadow-xs"
+                  : "text-[#8a8a8a] hover:bg-[#282828]/50 hover:text-white"
+              )}
+            >
+              <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+              <span>Ask Mentor</span>
+            </button>
+          </div>
+
+          {/* Tab Content Area */}
+          <div className="flex-1 overflow-y-auto p-5 text-sm leading-relaxed text-[#c7c7c7]">
+            {/* ---------------- DESCRIPTION TAB ---------------- */}
+            {activeTab === "description" && (
+              <div className="space-y-6">
+                {/* Title & Metadata Header */}
                 <div>
-                  {/* Top Icon & Enrolled status */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div
+                  <div className="flex items-center justify-between gap-3">
+                    <h1 className="text-xl font-bold text-white tracking-tight">
+                      {currentProblem.problemNumber}. {currentProblem.title}
+                    </h1>
+                    {solvedProblemIds.has(currentProblem.id) && (
+                      <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-xs font-bold text-[#2cbb5d]">
+                        <CheckCircle className="h-3 w-3" /> Solved
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {/* Difficulty Pill */}
+                    <span
                       className={cn(
-                        "flex h-12 w-12 items-center justify-center rounded-2xl text-xl shadow-md text-white bg-gradient-to-br",
-                        course.accentColor
+                        "rounded-full border px-2.5 py-0.5 text-xs font-bold capitalize",
+                        getDiffBadge(currentProblem.difficulty)
                       )}
                     >
-                      {course.icon}
-                    </div>
-                    <span className="rounded-full bg-indigo-50 border border-indigo-100 px-2.5 py-1 text-[10px] font-bold text-indigo-700">
-                      Enrolled
+                      {currentProblem.difficulty}
+                    </span>
+
+                    {/* Category Pill */}
+                    <span className="rounded-full bg-[#333333] border border-[#3e3e3e] px-2.5 py-0.5 text-xs font-semibold text-[#8a8a8a]">
+                      {currentProblem.category}
+                    </span>
+
+                    {/* Acceptance */}
+                    <span className="text-xs text-[#8a8a8a]">
+                      Acceptance: <strong className="text-white">{currentProblem.acceptance}</strong>
                     </span>
                   </div>
 
-                  {/* Course Code & Name */}
-                  <h3 className="text-sm font-extrabold text-slate-900 group-hover:text-indigo-600 transition leading-snug line-clamp-2">
-                    {course.code}
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-500 line-clamp-1">
-                    {course.name}
-                  </p>
-
-                  {/* Progress Bar */}
-                  <div className="mt-4 space-y-1.5">
-                    <div className="flex justify-between text-[11px] font-bold text-slate-600">
-                      <span>Progress</span>
-                      <span>{pct}%</span>
-                    </div>
-                    <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className={cn(
-                          "h-full bg-gradient-to-r",
-                          course.accentColor
-                        )}
-                        style={{ width: `${Math.max(5, pct)}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Metadata Chips (Matches Screenshot 3) */}
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-500 border-t border-slate-100 pt-3">
-                    <div>
-                      <span className="text-slate-400 block text-[9px] uppercase font-bold">
-                        Start Date
-                      </span>
-                      <span>{course.startDate}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block text-[9px] uppercase font-bold">
-                        End Date
-                      </span>
-                      <span>{course.endDate}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block text-[9px] uppercase font-bold">
-                        Assessments
-                      </span>
-                      <span className="text-indigo-600 font-bold">
-                        {course.totalAssessments} Tests
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block text-[9px] uppercase font-bold">
-                        Lectures
-                      </span>
-                      <span>{course.lectures.length} Units</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Open Lab CTA */}
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveLabId(course.id);
-                      setSelectedLectureId(course.lectures[0].id);
-                      setActiveItemType("note");
-                    }}
-                    className="w-full rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 py-2.5 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
-                  >
-                    <BookOpen className="h-3.5 w-3.5 text-indigo-600" />
-                    <span>Study Notes</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveLabId(course.id);
-                      setSelectedLectureId(course.lectures[0].id);
-                      triggerAssessmentWithTimer(course.lectures[0].id, "code");
-                    }}
-                    className="w-full rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 px-3 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/20"
-                  >
-                    <Timer className="h-3.5 w-3.5" />
-                    <span>Start Test (30s)</span>
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  // =========================================================================
-  // VIEW MODE 2: INSIDE LAB WORKSPACE (Matches Screenshot 1 & 2)
-  // =========================================================================
-  return (
-    <div className="px-4 py-5 lg:px-8 max-w-[1680px] mx-auto space-y-4">
-      {/* Top Banner (Matches Screenshot 1 & 2) */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 sm:p-6 shadow-xl border border-indigo-900/60">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={() => setActiveLabId(null)}
-              className="flex items-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 px-3 py-1.5 text-xs font-bold text-white transition backdrop-blur-sm border border-white/10"
-              title="Return to all courses"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>All Labs</span>
-            </button>
-
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white text-lg shadow-md font-bold">
-                {activeLab.icon}
-              </div>
-              <div>
-                <h1 className="text-base sm:text-lg font-black tracking-tight text-white">
-                  {activeLab.code}
-                </h1>
-                <p className="text-xs text-indigo-200">
-                  {activeLab.name}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Top Progress & Stats (Matches Screenshot 1 & 2) */}
-          <div className="flex flex-wrap items-center gap-3 text-xs">
-            <div className="flex items-center gap-2 rounded-2xl bg-white/10 px-3 py-1.5 backdrop-blur-sm border border-white/10">
-              <span className="text-indigo-300 font-bold">Start:</span>
-              <span>{activeLab.startDate}</span>
-            </div>
-            <div className="flex items-center gap-2 rounded-2xl bg-white/10 px-3 py-1.5 backdrop-blur-sm border border-white/10">
-              <span className="text-indigo-300 font-bold">End:</span>
-              <span>{activeLab.endDate}</span>
-            </div>
-            <div className="flex items-center gap-2 rounded-2xl bg-white/10 px-3 py-1.5 backdrop-blur-sm border border-white/10">
-              <span className="text-indigo-300 font-bold">Tests:</span>
-              <span>{activeLab.totalAssessments}</span>
-            </div>
-            <div className="flex items-center gap-2 rounded-2xl bg-indigo-600 px-3.5 py-1.5 font-bold shadow-md">
-              <span>Progress: {labProgressPct}%</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setLabRecordModalOpen(true)}
-              className="flex items-center gap-1.5 rounded-2xl bg-white/15 hover:bg-white/25 border border-white/20 px-3.5 py-1.5 font-bold shadow-md transition text-white"
-              title="Generate and print official college lab record manual"
-            >
-              <Printer className="h-3.5 w-3.5 text-indigo-200" />
-              <span>Export Lab Record (PDF)</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Global Progress Strip */}
-        <div className="mt-4 h-1.5 w-full rounded-full bg-white/15 overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-emerald-400 to-teal-300 transition-all duration-300"
-            style={{ width: `${Math.max(3, labProgressPct)}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Main Split Layout: Left Hierarchy vs Right Workspace */}
-      <div className="grid gap-5 lg:grid-cols-[380px_1fr] xl:grid-cols-[420px_1fr]">
-        {/* =========================================================================
-            LEFT COLUMN: LECTURES ACCORDION (Matches Screenshot 1 & 2)
-            ========================================================================= */}
-        <div className="space-y-3">
-          {/* Search Box in Sidebar */}
-          <div className="relative rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={labSearch}
-              onChange={(e) => setLabSearch(e.target.value)}
-              placeholder="Search lectures, topics, questions..."
-              className="w-full bg-transparent pl-8 pr-3 text-xs outline-none font-medium text-slate-800 placeholder:text-slate-400"
-            />
-          </div>
-
-          {/* Lectures List */}
-          <div className="space-y-3 max-h-[820px] overflow-y-auto pr-1">
-            {filteredLectures.map((lecture) => {
-              const isSelectedLecture = lecture.id === selectedLectureId;
-              const isNoteDone = completedItems.has(`${lecture.id}_note`);
-              const isMcqDone = completedItems.has(`${lecture.id}_mcq`);
-              const isCodeDone = completedItems.has(`${lecture.id}_code`);
-
-              return (
-                <div
-                  key={lecture.id}
-                  className="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden"
-                >
-                  {/* Lecture Header Accordion Header */}
-                  <div className="p-3.5 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-5 w-5 items-center justify-center rounded-md bg-indigo-600 text-white text-[10px] font-black">
-                        {lecture.lectureNumber}
-                      </span>
-                      <span className="text-xs font-black text-slate-800">
-                        Lecture {lecture.lectureNumber}: {lecture.title}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* 3 Sub-items (Notes, MCQ, Coding) - Matches Screenshot 1 & 2 */}
-                  <div className="p-2 space-y-1">
-                    {/* Item 1: Concept Notes & Reading */}
+                  {/* Social Action Bar (Like, Dislike, Star, Share) */}
+                  <div className="mt-4 flex items-center gap-4 border-b border-[#333333] pb-4 text-xs text-[#8a8a8a]">
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedLectureId(lecture.id);
-                        setActiveItemType("note");
+                        const cur = likes[currentProblem.id] || 1284;
+                        const liked = hasLiked[currentProblem.id];
+                        setLikes((p) => ({ ...p, [currentProblem.id]: liked ? cur - 1 : cur + 1 }));
+                        setHasLiked((p) => ({ ...p, [currentProblem.id]: !liked }));
                       }}
                       className={cn(
-                        "w-full text-left rounded-2xl p-2.5 text-xs transition flex items-center justify-between gap-2.5",
-                        isSelectedLecture && activeItemType === "note"
-                          ? "bg-indigo-50 border border-indigo-200 text-indigo-950 font-bold"
-                          : "hover:bg-slate-50 text-slate-700"
+                        "flex items-center gap-1 hover:text-white transition",
+                        hasLiked[currentProblem.id] && "text-[#ffa116]"
                       )}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span
-                          className={cn(
-                            "h-2 w-2 rounded-full shrink-0",
-                            isSelectedLecture && activeItemType === "note"
-                              ? "bg-indigo-600 ring-4 ring-indigo-100"
-                              : isNoteDone
-                                ? "bg-emerald-500"
-                                : "bg-slate-300"
-                          )}
-                        />
-                        <FileText className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
-                        <span className="truncate">
-                          1. {lecture.note.title}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-slate-400 shrink-0">
-                        {lecture.note.readTime}
-                      </span>
+                      <ThumbsUp className="h-3.5 w-3.5" />
+                      <span>{likes[currentProblem.id] || 1284}</span>
                     </button>
 
-                    {/* Item 2: MCQ Assessment */}
                     <button
                       type="button"
-                      onClick={() => triggerAssessmentWithTimer(lecture.id, "mcq")}
-                      className={cn(
-                        "w-full text-left rounded-2xl p-2.5 text-xs transition flex items-center justify-between gap-2.5",
-                        isSelectedLecture && activeItemType === "mcq"
-                          ? "bg-indigo-50 border border-indigo-200 text-indigo-950 font-bold"
-                          : "hover:bg-slate-50 text-slate-700"
-                      )}
+                      className="flex items-center gap-1 hover:text-white transition"
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span
-                          className={cn(
-                            "h-2 w-2 rounded-full shrink-0",
-                            isSelectedLecture && activeItemType === "mcq"
-                              ? "bg-indigo-600 ring-4 ring-indigo-100"
-                              : isMcqDone
-                                ? "bg-emerald-500"
-                                : "bg-slate-300"
-                          )}
-                        />
-                        <HelpCircle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                        <span className="truncate">
-                          2. {lecture.title} MCQ Assessment
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 shrink-0">
-                        {lecture.mcqs.length} MCQs
-                      </span>
+                      <ThumbsDown className="h-3.5 w-3.5" />
                     </button>
 
-                    {/* Item 3: Coding Problem (CodeTantra IDE) */}
                     <button
                       type="button"
-                      onClick={() => triggerAssessmentWithTimer(lecture.id, "code")}
+                      onClick={() =>
+                        setIsStarred((p) => ({
+                          ...p,
+                          [currentProblem.id]: !p[currentProblem.id],
+                        }))
+                      }
                       className={cn(
-                        "w-full text-left rounded-2xl p-2.5 text-xs transition flex items-center justify-between gap-2.5",
-                        isSelectedLecture && activeItemType === "code"
-                          ? "bg-indigo-50 border border-indigo-200 text-indigo-950 font-bold"
-                          : "hover:bg-slate-50 text-slate-700"
+                        "flex items-center gap-1 hover:text-white transition",
+                        isStarred[currentProblem.id] && "text-[#ffa116]"
                       )}
                     >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span
-                          className={cn(
-                            "h-2 w-2 rounded-full shrink-0",
-                            isSelectedLecture && activeItemType === "code"
-                              ? "bg-indigo-600 ring-4 ring-indigo-100"
-                              : isCodeDone
-                                ? "bg-emerald-500"
-                                : "bg-slate-300"
-                          )}
-                        />
-                        <Code2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                        <span className="truncate">
-                          3. {lecture.codingProblem.title}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-bold uppercase text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200 shrink-0">
-                        COD
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* =========================================================================
-            RIGHT COLUMN: DYNAMIC WORKSPACE (Notes / MCQ / CodeTantra IDE)
-            ========================================================================= */}
-        <div className="space-y-4">
-          {/* ==========================================
-              SUB-VIEW 1: STUDY NOTES / DOCUMENT READER (Matches Screenshot 1 & 2)
-              ========================================== */}
-          {activeItemType === "note" && (
-            <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden space-y-6 p-6 sm:p-8 animate-in fade-in duration-150">
-              {/* Document Meta Header (Matches Screenshot 1/2) */}
-              <div className="border-b border-slate-100 pb-5">
-                <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-                  <div className="flex items-center gap-3">
-                    <span className="rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
-                      Lecture {currentLecture.lectureNumber} Guide
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3.5 w-3.5 text-slate-400" />
-                      Read Time: {currentLecture.note.readTime}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      markItemCompleted(`${currentLecture.id}_note`);
-                      triggerAssessmentWithTimer(currentLecture.id, "mcq");
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 shadow-sm transition"
-                  >
-                    <Timer className="h-3.5 w-3.5" />
-                    <span>Start MCQ (30s Timer)</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                <h2 className="mt-3 text-2xl font-black text-slate-900">
-                  {currentLecture.note.title}
-                </h2>
-              </div>
-
-              {/* Document Information Table (Matches Screenshot 1/2) */}
-              <div className="rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  Document Information
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Module:</span>
-                    <span className="font-semibold text-slate-800">{activeLab.shortTitle}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Topic:</span>
-                    <span className="font-semibold text-slate-800">{currentLecture.title}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Format:</span>
-                    <span className="font-semibold text-slate-800">Lab Guide / PDF</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px]">Status:</span>
-                    <span className="font-bold text-emerald-600">
-                      {completedItems.has(`${currentLecture.id}_note`) ? "Completed ✓" : "In Progress"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Formatted Guide Body */}
-              <div className="prose prose-slate max-w-none text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-                {currentLecture.note.content}
-              </div>
-
-              {/* Key Takeaways */}
-              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-2">
-                <div className="text-xs font-black uppercase tracking-wider text-indigo-950 flex items-center gap-1.5">
-                  <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
-                  Key Takeaways
-                </div>
-                <ul className="list-disc list-inside space-y-1 text-xs text-indigo-900">
-                  {currentLecture.note.keyPoints.map((pt, idx) => (
-                    <li key={idx}>{pt}</li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* Footer CTA */}
-              <div className="flex items-center justify-between border-t border-slate-100 pt-5">
-                <span className="text-xs text-slate-400">
-                  Done studying? Test your conceptual understanding in the MCQ Assessment.
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    markItemCompleted(`${currentLecture.id}_note`);
-                    triggerAssessmentWithTimer(currentLecture.id, "mcq");
-                  }}
-                  className="rounded-2xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white hover:bg-indigo-700 shadow-md shadow-indigo-600/20 transition flex items-center gap-2"
-                >
-                  <Timer className="h-4 w-4" />
-                  <span>Take Lecture MCQ Test (30s Timer)</span>
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ==========================================
-              SUB-VIEW 2: LECTURE MCQ ASSESSMENT
-              ========================================== */}
-          {activeItemType === "mcq" && (
-            <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden p-6 sm:p-8 space-y-6 animate-in fade-in duration-150">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
-                <div>
-                  <span className="rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 border border-amber-200">
-                    Lecture {currentLecture.lectureNumber} Assessment
-                  </span>
-                  <h2 className="mt-2 text-xl font-black text-slate-900">
-                    {currentLecture.title} – MCQ Assessment
-                  </h2>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-mono font-bold text-emerald-400 shadow-xs">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <span>⏱️ {formatExamTime(assessmentTimeRemaining)}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => triggerAssessmentWithTimer(currentLecture.id, "mcq", true)}
-                    title="Restart assessment with 30s countdown"
-                    className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 transition"
-                  >
-                    <RotateCcw className="h-3 w-3" /> Retake (30s Timer)
-                  </button>
-                  <span className="text-xs font-bold text-slate-500">
-                    Question {currentMcqIndex + 1} of {currentLecture.mcqs.length}
-                  </span>
-                </div>
-              </div>
-
-              {/* MCQ Question Body */}
-              {(() => {
-                const mcq: LabMCQ = currentLecture.mcqs[currentMcqIndex];
-                const chosen = mcqAnswers[currentMcqIndex];
-                const answered = chosen !== undefined;
-
-                return (
-                  <div className="space-y-4">
-                    <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
-                      {mcq.question}
-                    </h3>
-
-                    {mcq.codeSnippet && (
-                      <pre className="rounded-2xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs text-emerald-300 whitespace-pre-wrap">
-                        {mcq.codeSnippet}
-                      </pre>
-                    )}
-
-                    {/* Options Grid */}
-                    <div className="space-y-2.5">
-                      {mcq.options.map((opt, optIdx) => {
-                        const isChosen = chosen === optIdx;
-                        const isCorrect = optIdx === mcq.correctIndex;
-
-                        let style = "border-slate-200 bg-slate-50/80 hover:bg-indigo-50/60 hover:border-indigo-200 text-slate-800";
-                        if (answered) {
-                          if (isCorrect) {
-                            style = "border-emerald-500 bg-emerald-50 text-emerald-950 font-bold ring-2 ring-emerald-200";
-                          } else if (isChosen) {
-                            style = "border-rose-400 bg-rose-50 text-rose-950 font-bold";
-                          } else {
-                            style = "opacity-50 border-slate-200 bg-slate-50 text-slate-400";
-                          }
-                        }
-
-                        return (
-                          <button
-                            key={optIdx}
-                            type="button"
-                            disabled={answered}
-                            onClick={() => {
-                              setMcqAnswers((prev) => ({
-                                ...prev,
-                                [currentMcqIndex]: optIdx,
-                              }));
-                            }}
-                            className={cn(
-                              "w-full text-left rounded-2xl border p-3.5 text-xs sm:text-sm transition flex items-center justify-between gap-3",
-                              style
-                            )}
-                          >
-                            <span className="flex items-center gap-2.5">
-                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-xs font-black shadow-xs border">
-                                {String.fromCharCode(65 + optIdx)}
-                              </span>
-                              <span>{opt}</span>
-                            </span>
-                            {answered && isCorrect && (
-                              <Check className="h-4 w-4 text-emerald-600 shrink-0" />
-                            )}
-                            {answered && isChosen && !isCorrect && (
-                              <XCircle className="h-4 w-4 text-rose-600 shrink-0" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Explanation Box */}
-                    {answered && (
-                      <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 text-xs text-indigo-950 leading-relaxed animate-in fade-in">
-                        <span className="font-bold">Explanation: </span>
-                        {mcq.explanation}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* MCQ Pagination / Controls */}
-              <div className="flex items-center justify-between border-t border-slate-100 pt-5">
-                <button
-                  type="button"
-                  disabled={currentMcqIndex === 0}
-                  onClick={() => setCurrentMcqIndex((prev) => prev - 1)}
-                  className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-                >
-                  Previous
-                </button>
-
-                {currentMcqIndex < currentLecture.mcqs.length - 1 ? (
-                  <button
-                    type="button"
-                    disabled={mcqAnswers[currentMcqIndex] === undefined}
-                    onClick={() => setCurrentMcqIndex((prev) => prev + 1)}
-                    className="rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-40"
-                  >
-                    Next Question
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={mcqAnswers[currentMcqIndex] === undefined}
-                    onClick={() => {
-                      markItemCompleted(`${currentLecture.id}_mcq`);
-                      triggerAssessmentWithTimer(currentLecture.id, "code");
-                    }}
-                    className="rounded-xl bg-emerald-600 px-5 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-md shadow-emerald-600/25 disabled:opacity-40 flex items-center gap-1.5"
-                  >
-                    <Timer className="h-3.5 w-3.5" />
-                    <span>Complete &amp; Start Coding Problem (30s Timer)</span>
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ==========================================
-              SUB-VIEW 3: CODING CHALLENGE (CodeTantra IDE)
-              ========================================== */}
-          {activeItemType === "code" && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              {/* Problem Statement Card */}
-              <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-lg bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase text-indigo-700">
-                        Lecture {currentLecture.lectureNumber} Problem
-                      </span>
-                      <span
+                      <Star
                         className={cn(
-                          "rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase",
-                          currentProblem.difficulty === "easy"
-                            ? "bg-emerald-50 text-emerald-700"
-                            : currentProblem.difficulty === "medium"
-                              ? "bg-amber-50 text-amber-700"
-                              : "bg-rose-50 text-rose-700"
+                          "h-3.5 w-3.5",
+                          isStarred[currentProblem.id] && "fill-[#ffa116]"
                         )}
-                      >
-                        {currentProblem.difficulty}
-                      </span>
-                    </div>
-                    <h2 className="text-xl font-black text-slate-900">
-                      {currentProblem.title}
-                    </h2>
-                    {currentProblem.companyTags && currentProblem.companyTags.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                        <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
-                          <Target className="h-3 w-3 text-indigo-600" /> Asked in:
-                        </span>
-                        {currentProblem.companyTags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-800 shadow-2xs"
-                          >
-                            🎯 {tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-mono font-bold text-emerald-400 shadow-xs">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                      <span>⏱️ {formatExamTime(assessmentTimeRemaining)}</span>
-                    </div>
+                      />
+                      <span>Favorite</span>
+                    </button>
 
                     <button
                       type="button"
-                      onClick={() => triggerAssessmentWithTimer(currentLecture.id, "code", true)}
-                      title="Restart coding challenge with 30s countdown"
-                      className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 transition"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(window.location.href);
+                        setCopiedLink(true);
+                        setTimeout(() => setCopiedLink(false), 2000);
+                      }}
+                      className="flex items-center gap-1 hover:text-white transition"
                     >
-                      <RotateCcw className="h-3 w-3" /> Restart Test (30s Timer)
+                      <Share2 className="h-3.5 w-3.5" />
+                      <span>{copiedLink ? "Copied!" : "Share"}</span>
                     </button>
-
-                    {completedItems.has(`${currentLecture.id}_code`) && (
-                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3.5 py-1 text-xs font-bold text-emerald-800">
-                        <CheckCircle2 className="h-4 w-4" /> Solved &amp; Accepted ✓
-                      </span>
-                    )}
                   </div>
                 </div>
 
-                {/* Problem Description */}
-                <div className="text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                {/* Company & Topics Tags */}
+                <div className="space-y-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[#8a8a8a] font-semibold">Topics:</span>
+                    {currentProblem.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded bg-[#2f2f2f] px-2 py-0.5 text-[#a0a0a0] border border-[#3a3a3a]"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+
+                  {currentProblem.companyTags && currentProblem.companyTags.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[#8a8a8a] font-semibold">Companies:</span>
+                      {currentProblem.companyTags.map((comp) => (
+                        <span
+                          key={comp}
+                          className="rounded bg-[#2a2d34] px-2 py-0.5 text-blue-300 border border-blue-900/40"
+                        >
+                          {comp}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Markdown Problem Statement */}
+                <div className="space-y-3 whitespace-pre-line text-[#dfdfdf] leading-relaxed text-sm">
                   {currentProblem.description}
                 </div>
 
-                {/* I/O Format & Constraints */}
-                <div className="grid gap-3 sm:grid-cols-3 rounded-2xl bg-slate-50 p-3.5 text-xs">
-                  <div>
-                    <span className="font-bold text-slate-700">Input Format: </span>
-                    <span className="text-slate-600 block mt-0.5">{currentProblem.inputFormat}</span>
-                  </div>
-                  <div>
-                    <span className="font-bold text-slate-700">Output Format: </span>
-                    <span className="text-slate-600 block mt-0.5">{currentProblem.outputFormat}</span>
-                  </div>
-                  <div>
-                    <span className="font-bold text-slate-700">Constraints: </span>
-                    <code className="rounded bg-slate-200/80 px-1 py-0.2 font-mono text-[11px] block mt-0.5">
-                      {currentProblem.constraints}
-                    </code>
-                  </div>
+                {/* Structured Examples (LeetCode exact look) */}
+                <div className="space-y-4">
+                  {currentProblem.examples.map((ex, idx) => (
+                    <div key={idx} className="space-y-1.5">
+                      <div className="text-xs font-bold text-white">
+                        Example {idx + 1}:
+                      </div>
+                      <div className="rounded-xl border border-[#3e3e3e] bg-[#2a2a2a] p-3.5 font-mono text-xs text-[#e1e1e1] space-y-1">
+                        <div>
+                          <strong className="text-white">Input: </strong>
+                          <span className="text-emerald-300 whitespace-pre">{ex.input}</span>
+                        </div>
+                        <div>
+                          <strong className="text-white">Output: </strong>
+                          <span className="text-[#ffa116] whitespace-pre">{ex.output}</span>
+                        </div>
+                        {ex.explanation && (
+                          <div className="pt-1 text-[#a0a0a0] font-sans text-xs">
+                            <strong className="text-white font-mono">Explanation: </strong>
+                            {ex.explanation}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
-                {/* Sample Case */}
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                      Sample Input (STDIN)
-                    </div>
-                    <pre className="rounded-xl border border-slate-200 bg-slate-100 p-2.5 font-mono text-xs text-slate-900 whitespace-pre-wrap">
-                      {currentProblem.sampleInput}
-                    </pre>
+                {/* Constraints */}
+                {currentProblem.constraints.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                      Constraints:
+                    </h3>
+                    <ul className="list-disc list-inside space-y-1 text-xs text-[#a0a0a0] font-mono">
+                      {currentProblem.constraints.map((c, i) => (
+                        <li key={i}>
+                          <code className="rounded bg-[#333333] px-1 py-0.5 text-[#e1e1e1]">
+                            {c}
+                          </code>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  <div>
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                      Sample Output (STDOUT)
-                    </div>
-                    <pre className="rounded-xl border border-slate-200 bg-slate-100 p-2.5 font-mono text-xs text-slate-900 whitespace-pre-wrap">
-                      {currentProblem.sampleOutput}
-                    </pre>
-                  </div>
-                </div>
+                )}
 
-                {currentProblem.explanation && (
-                  <p className="text-xs text-slate-500 italic">
-                    💡 Explanation: {currentProblem.explanation}
-                  </p>
+                {/* Collapsible Hints */}
+                {currentProblem.hints.length > 0 && (
+                  <div className="space-y-2 pt-2">
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                      Hints:
+                    </h3>
+                    <div className="space-y-2">
+                      {currentProblem.hints.map((hint, i) => {
+                        const hintKey = `${currentProblem.id}_hint_${i}`;
+                        const isRevealed = revealedHints[hintKey];
+                        return (
+                          <div
+                            key={i}
+                            className="rounded-xl border border-[#3e3e3e] bg-[#2a2a2a] overflow-hidden"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleHint(hintKey)}
+                              className="flex w-full items-center justify-between px-3.5 py-2.5 text-xs font-semibold text-white hover:bg-[#333333] transition"
+                            >
+                              <span className="flex items-center gap-2">
+                                <HelpCircle className="h-3.5 w-3.5 text-[#ffa116]" />
+                                Hint {i + 1}
+                              </span>
+                              <ChevronDown
+                                className={cn(
+                                  "h-3.5 w-3.5 text-[#8a8a8a] transition-transform",
+                                  isRevealed && "rotate-180"
+                                )}
+                              />
+                            </button>
+                            {isRevealed && (
+                              <div className="border-t border-[#3e3e3e] bg-[#242424] p-3 text-xs text-[#c7c7c7] leading-relaxed">
+                                {hint}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
+            )}
 
-              {/* IDE Header Controls Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-900 px-4 py-2.5 text-white shadow-sm">
-                <div className="flex items-center gap-2">
-                  <FileCode className="h-4 w-4 text-indigo-400" />
-                  <span className="text-xs font-bold text-slate-300">Language:</span>
-                  <div className="flex gap-1 bg-slate-800 p-1 rounded-xl">
-                    {(["cpp", "python", "c"] as LanguageId[]).map((lang) => (
+            {/* ---------------- EDITORIAL TAB ---------------- */}
+            {activeTab === "editorial" && (
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-lg font-bold text-white">
+                    Approach: {currentProblem.editorial.approachTitle}
+                  </h2>
+                  <p className="mt-2 text-sm text-[#b0b0b0] leading-relaxed whitespace-pre-line">
+                    {currentProblem.editorial.approachBody}
+                  </p>
+                </div>
+
+                {/* Complexity Box */}
+                <div className="rounded-xl border border-[#3e3e3e] bg-[#2a2a2a] p-4 space-y-2 text-xs">
+                  <h3 className="font-bold text-white uppercase tracking-wider">
+                    Complexity Analysis
+                  </h3>
+                  <div className="space-y-1">
+                    <div>
+                      <strong className="text-emerald-400">Time Complexity: </strong>
+                      <span className="text-[#e1e1e1]">
+                        {currentProblem.editorial.timeComplexity}
+                      </span>
+                    </div>
+                    <div>
+                      <strong className="text-blue-400">Space Complexity: </strong>
+                      <span className="text-[#e1e1e1]">
+                        {currentProblem.editorial.spaceComplexity}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Solution Snippet */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white uppercase">
+                      Reference Implementation ({selectedLanguage.toUpperCase()})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sol =
+                          currentProblem.editorial.solutionCode[selectedLanguage] || "";
+                        navigator.clipboard?.writeText(sol);
+                        setCopiedCode(true);
+                        setTimeout(() => setCopiedCode(false), 2000);
+                      }}
+                      className="flex items-center gap-1 text-xs text-[#8a8a8a] hover:text-white"
+                    >
+                      <Copy className="h-3 w-3" />
+                      <span>{copiedCode ? "Copied" : "Copy"}</span>
+                    </button>
+                  </div>
+                  <pre className="rounded-xl border border-[#3e3e3e] bg-[#1e1e1e] p-4 text-xs font-mono text-emerald-300 overflow-x-auto leading-relaxed">
+                    <code>
+                      {currentProblem.editorial.solutionCode[selectedLanguage] ||
+                        "// Solution in selected language not provided"}
+                    </code>
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {/* ---------------- SOLUTIONS TAB ---------------- */}
+            {activeTab === "solutions" && (
+              <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-base font-bold text-white">
+                      Curated Multi-Language Solutions
+                    </h2>
+                    <p className="text-xs text-[#8a8a8a]">
+                      Verified optimal solutions for {currentProblem.title}
+                    </p>
+                  </div>
+                  <div className="flex gap-1 bg-[#1e1e1e] p-1 rounded-lg border border-[#333333]">
+                    {(["cpp", "python", "c"] as LanguageId[]).map((l) => (
                       <button
-                        key={lang}
+                        key={l}
                         type="button"
-                        onClick={() => setSelectedLanguage(lang)}
+                        onClick={() => setSelectedLanguage(l)}
                         className={cn(
-                          "rounded-lg px-2.5 py-1 text-[11px] font-bold uppercase transition",
-                          selectedLanguage === lang
-                            ? "bg-indigo-600 text-white shadow"
-                            : "text-slate-400 hover:text-white"
+                          "px-2.5 py-1 text-xs font-bold uppercase rounded",
+                          selectedLanguage === l
+                            ? "bg-[#ffa116] text-black"
+                            : "text-[#8a8a8a] hover:text-white"
                         )}
                       >
-                        {lang === "cpp" ? "C++" : lang}
+                        {l === "cpp" ? "C++" : l}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Anti-Cheat Keystroke & Paste Velocity Audit */}
-                  {largePasteDetected ? (
-                    <div
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-300"
-                      title={`Integrity Audit: ${pasteCount} external paste event(s), total ${pastedChars} characters copied.`}
-                    >
-                      <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
-                      <span>External Paste Flag (+{pastedChars} chars)</span>
-                    </div>
-                  ) : (
-                    <div
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-bold text-emerald-300"
-                      title="Integrity Audit: 100% Organic manual keystroke typing."
-                    >
-                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-                      <span>Original Work Verified ✓</span>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={handleResetCode}
-                    title="Reset starter template"
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 hover:bg-slate-700 hover:text-white"
-                  >
-                    <RotateCcw className="h-3 w-3" /> Reset
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => askAiMentor("hint")}
-                    disabled={mentorLoading}
-                    className="inline-flex items-center gap-1 rounded-lg bg-violet-600/90 hover:bg-violet-600 px-3 py-1.5 text-[11px] font-bold text-white shadow-sm"
-                  >
-                    <Sparkles className="h-3 w-3" /> Ask Mentor
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={runCodeCustom}
-                    disabled={running}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 px-3 py-1.5 text-xs font-bold text-white transition disabled:opacity-50"
-                  >
-                    {running ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Play className="h-3.5 w-3.5 text-emerald-400 fill-emerald-400" />
-                    )}
-                    Run
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={runAllTests}
-                    disabled={running}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-md shadow-emerald-600/25 transition disabled:opacity-50"
-                  >
-                    {running ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                    )}
-                    Submit &amp; Test (CodeTantra)
-                  </button>
-                </div>
-              </div>
-
-              {/* Interactive Code Editor (Dark Mode IDE) */}
-              <div className="relative rounded-2xl border border-slate-800 bg-slate-950 font-mono shadow-inner overflow-hidden">
-                <div className="flex items-center justify-between border-b border-slate-800/80 bg-slate-900/60 px-4 py-1.5 text-[11px] text-slate-500">
-                  <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />
-                    solution.{selectedLanguage === "python" ? "py" : selectedLanguage === "c" ? "c" : "cpp"}
-                  </span>
-                  <span>Tab = 4 spaces</span>
-                </div>
-                <textarea
-                  ref={textareaRef}
-                  value={currentCode}
-                  onChange={(e) => {
-                    setTypedChars((prev) => prev + 1);
-                    handleCodeChange(e.target.value);
-                  }}
-                  onPaste={(e) => {
-                    const text = e.clipboardData.getData("text");
-                    if (text) {
-                      setPasteCount((prev) => prev + 1);
-                      setPastedChars((prev) => prev + text.length);
-                      if (text.length > 50 || text.split("\n").length > 3) {
-                        setLargePasteDetected(true);
-                      }
-                    }
-                  }}
-                  onKeyDown={handleKeyDown}
-                  spellCheck={false}
-                  className="w-full min-h-[380px] bg-transparent p-4 text-xs font-mono text-emerald-300 leading-relaxed outline-none resize-y selection:bg-indigo-600/50"
-                  placeholder={`Write your ${selectedLanguage} code here...`}
-                />
-              </div>
-
-              {/* Custom Input Toggle */}
-              <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setShowCustomInput(!showCustomInput)}
-                    className="text-xs font-bold text-indigo-600 hover:underline flex items-center gap-1"
-                  >
-                    <Terminal className="h-3.5 w-3.5" />
-                    {showCustomInput ? "Hide Custom Input (STDIN)" : "Provide Custom Input (STDIN)"}
-                  </button>
-                  {executionTime !== null && (
-                    <span className="text-[11px] text-slate-400">
-                      Execution time: {executionTime}ms
+                <div className="rounded-xl border border-[#3e3e3e] bg-[#1e1e1e] p-4">
+                  <div className="flex items-center justify-between border-b border-[#333333] pb-2 mb-3">
+                    <span className="text-xs font-mono text-slate-400">
+                      solution.{selectedLanguage === "python" ? "py" : selectedLanguage === "c" ? "c" : "cpp"}
                     </span>
-                  )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const sol =
+                          currentProblem.editorial.solutionCode[selectedLanguage] || "";
+                        handleCodeChange(sol);
+                      }}
+                      className="text-xs font-bold text-[#ffa116] hover:underline flex items-center gap-1"
+                    >
+                      <ArrowRight className="h-3 w-3" /> Load Into Editor
+                    </button>
+                  </div>
+                  <pre className="text-xs font-mono text-[#7ee787] overflow-x-auto leading-relaxed">
+                    <code>
+                      {currentProblem.editorial.solutionCode[selectedLanguage] ||
+                        "// Solution not available"}
+                    </code>
+                  </pre>
                 </div>
-
-                {showCustomInput && (
-                  <textarea
-                    value={customInput}
-                    onChange={(e) => setCustomInput(e.target.value)}
-                    placeholder="Enter input here (lines will be passed to stdin)..."
-                    className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 font-mono text-xs text-slate-800 outline-none focus:border-indigo-400"
-                    rows={3}
-                  />
-                )}
               </div>
+            )}
 
-              {/* Output / Tests / Mentor Tabs */}
-              <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-                <div className="flex border-b border-slate-200 bg-slate-50 px-3 pt-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveConsoleTab("output")}
-                    className={cn(
-                      "rounded-t-xl px-3.5 py-2 text-xs font-bold border-b-2 transition flex items-center gap-1.5",
-                      activeConsoleTab === "output"
-                        ? "border-indigo-600 text-indigo-600 bg-white"
-                        : "border-transparent text-slate-500 hover:text-slate-900"
-                    )}
-                  >
-                    <Terminal className="h-3.5 w-3.5" /> Output Console
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveConsoleTab("tests")}
-                    className={cn(
-                      "rounded-t-xl px-3.5 py-2 text-xs font-bold border-b-2 transition flex items-center gap-1.5",
-                      activeConsoleTab === "tests"
-                        ? "border-indigo-600 text-indigo-600 bg-white"
-                        : "border-transparent text-slate-500 hover:text-slate-900"
-                    )}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Test Cases (CodeTantra)
-                    {testResults.length > 0 && (
-                      <span
-                        className={cn(
-                          "ml-1 px-1.5 py-0.2 rounded-full text-[10px]",
-                          testsPassedCount === testResults.length
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-rose-100 text-rose-800"
-                        )}
-                      >
-                        {testsPassedCount}/{testResults.length}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveConsoleTab("mentor")}
-                    className={cn(
-                      "rounded-t-xl px-3.5 py-2 text-xs font-bold border-b-2 transition flex items-center gap-1.5",
-                      activeConsoleTab === "mentor"
-                        ? "border-indigo-600 text-indigo-600 bg-white"
-                        : "border-transparent text-slate-500 hover:text-slate-900"
-                    )}
-                  >
-                    <Sparkles className="h-3.5 w-3.5 text-violet-500" /> AI Mentor
-                  </button>
+            {/* ---------------- SUBMISSIONS TAB ---------------- */}
+            {activeTab === "submissions" && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-bold text-white">Submission History</h2>
+                  <span className="text-xs text-[#8a8a8a]">
+                    Total: {submissionsList.length}
+                  </span>
                 </div>
 
-                <div className="p-4 min-h-[160px] max-h-[380px] overflow-y-auto space-y-3">
-                  {/* Console Tab */}
-                  {activeConsoleTab === "output" && (
-                    <div>
-                      {errorOutput && (
-                        <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 font-mono text-xs text-rose-800 whitespace-pre-wrap mb-2">
-                          <div className="font-bold flex items-center gap-1 text-rose-900 mb-1">
-                            <XCircle className="h-4 w-4" /> Standard Error / Diagnostics:
-                          </div>
-                          {errorOutput}
-                        </div>
-                      )}
-                      {output ? (
-                        <pre className="font-mono text-xs text-slate-900 whitespace-pre-wrap leading-relaxed">
-                          {output}
-                        </pre>
-                      ) : !errorOutput ? (
-                        <div className="flex flex-col items-center justify-center py-6 text-slate-400 text-xs">
-                          <Terminal className="h-8 w-8 text-slate-300 mb-2" />
-                          Click <strong>Run</strong> or <strong>Submit &amp; Test</strong> to execute your code.
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-
-                  {/* Test Cases Tab */}
-                  {activeConsoleTab === "tests" && (
-                    <div className="space-y-3">
-                      {/* Celebratory Banner */}
-                      {allPassedSuccess && testResults.length > 0 && (
-                        <div className="rounded-2xl border-2 border-emerald-500 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 p-5 text-white shadow-lg shadow-emerald-600/20">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex items-center gap-3">
-                              <div className="rounded-2xl bg-white/20 p-2.5 backdrop-blur-sm">
-                                <Trophy className="h-7 w-7 text-amber-300" />
-                              </div>
-                              <div>
-                                <div className="text-[10px] font-black uppercase tracking-wider text-emerald-100">
-                                  CodeTantra Evaluation Result
-                                </div>
-                                <h3 className="text-lg font-black text-white">
-                                  SUCCESS! All Test Cases Passed 🎉
-                                </h3>
-                                <p className="text-xs text-emerald-100">
-                                  Accepted • 100% Score • {testResults.length}/{testResults.length} Test cases verified (including hidden test cases).
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              {vivaVerifiedTasks.has(`${currentLecture.id}_code`) ? (
-                                <span className="inline-flex items-center gap-1.5 rounded-xl bg-amber-300 text-slate-900 px-3 py-1.5 text-xs font-black shadow-md">
-                                  <Award className="h-4 w-4 text-slate-900" />
-                                  <span>Viva Verified 🎖️</span>
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={startAiVivaChallenge}
-                                  className="inline-flex items-center gap-1.5 rounded-xl bg-white text-emerald-900 hover:bg-emerald-50 px-3.5 py-1.5 text-xs font-black shadow-md transition"
-                                >
-                                  <Mic className="h-4 w-4 text-indigo-600 animate-pulse" />
-                                  <span>Take AI Code Viva (Anti-Cheat)</span>
-                                </button>
+                {submissionsList.length === 0 ? (
+                  <div className="rounded-2xl border border-[#333333] bg-[#222222] p-8 text-center text-xs text-[#8a8a8a] space-y-2">
+                    <CheckCircle2 className="h-8 w-8 text-[#555555] mx-auto" />
+                    <p className="text-white font-semibold">No submissions recorded yet</p>
+                    <p>Click &quot;Submit&quot; to test your code against all hidden test cases.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {submissionsList.map((sub) => (
+                      <div
+                        key={sub.id}
+                        className="rounded-xl border border-[#333333] bg-[#222222] p-3 text-xs flex items-center justify-between hover:border-[#444444] transition"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "font-bold",
+                                sub.status === "Accepted"
+                                  ? "text-[#2cbb5d]"
+                                  : "text-red-400"
                               )}
-                              <span className="rounded-xl bg-white/20 px-3.5 py-1.5 text-xs font-bold text-white backdrop-blur-sm border border-white/25">
-                                Status: Accepted ✓
+                            >
+                              {sub.status}
+                            </span>
+                            <span className="rounded bg-[#333333] px-1.5 py-0.2 text-[10px] uppercase font-mono text-[#a0a0a0]">
+                              {sub.language}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[#8a8a8a]">
+                            Passed {sub.testsPassed}/{sub.testsTotal} test cases • {sub.timestamp}
+                          </div>
+                        </div>
+
+                        {sub.status === "Accepted" && (
+                          <div className="text-right space-y-0.5 font-mono">
+                            <div className="text-white font-semibold">
+                              {sub.runtimeMs} ms{" "}
+                              <span className="text-[10px] text-emerald-400 font-normal">
+                                (beats {sub.runtimeBeats}%)
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-[#8a8a8a]">
+                              {sub.memoryMb} MB{" "}
+                              <span className="text-[10px] text-blue-400">
+                                (beats {sub.memoryBeats}%)
                               </span>
                             </div>
                           </div>
-                        </div>
-                      )}
-
-                      {testResults.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-8 text-slate-400 text-xs">
-                          <CheckCircle2 className="h-8 w-8 text-slate-300 mb-2" />
-                          Click <strong>Submit &amp; Test (CodeTantra)</strong> to evaluate your code against test cases.
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-xs font-bold pb-1 border-b border-slate-100">
-                            <span>
-                              Test Results: {testsPassedCount} of {testResults.length} Passed
-                            </span>
-                            <span
-                              className={cn(
-                                "px-2.5 py-0.5 rounded-full text-[11px] font-bold",
-                                testsPassedCount === testResults.length
-                                  ? "bg-emerald-100 text-emerald-800"
-                                  : "bg-rose-100 text-rose-800"
-                              )}
-                            >
-                              {testsPassedCount === testResults.length
-                                ? "All Tests Passed ✓"
-                                : `${testResults.length - testsPassedCount} Tests Failed ✗`}
-                            </span>
-                          </div>
-
-                          {testResults.map((tr, idx) => {
-                            const matchingTc = currentProblem.testCases.find(
-                              (tc) => tc.id === tr.testCaseId
-                            );
-                            const isSecret = Boolean(matchingTc?.isSecret);
-
-                            return (
-                              <div
-                                key={tr.testCaseId || idx}
-                                className={cn(
-                                  "rounded-xl border p-3 text-xs flex flex-wrap items-center justify-between gap-2",
-                                  tr.passed
-                                    ? "border-emerald-200 bg-emerald-50/50"
-                                    : "border-rose-200 bg-rose-50/50"
-                                )}
-                              >
-                                <div className="flex items-center gap-2">
-                                  {tr.passed ? (
-                                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-                                  ) : (
-                                    <XCircle className="h-4 w-4 text-rose-600 shrink-0" />
-                                  )}
-                                  <span className="font-bold text-slate-800">
-                                    Test Case #{idx + 1}
-                                  </span>
-                                  {isSecret && (
-                                    <span className="rounded-md bg-slate-200 px-1.5 py-0.2 text-[9px] font-bold text-slate-700">
-                                      Hidden 🔒
-                                    </span>
-                                  )}
-                                  {tr.timeMs !== undefined && (
-                                    <span className="text-[10px] text-slate-400">
-                                      ({tr.timeMs}ms)
-                                    </span>
-                                  )}
-                                </div>
-
-                                <span className={cn("text-[11px] font-bold", tr.passed ? "text-emerald-700" : "text-rose-700")}>
-                                  {tr.passed ? "PASSED ✓" : "FAILED ✗"}
-                                </span>
-
-                                {!tr.passed && (
-                                  <div className="w-full mt-2 space-y-1 font-mono text-[11px] rounded-lg bg-white/70 p-2.5 border border-rose-100">
-                                    {isSecret ? (
-                                      <div className="text-slate-600 italic">
-                                        🔒 Hidden Test Case: Input/Output are masked. Check boundary cases and edge values.
-                                      </div>
-                                    ) : (
-                                      <>
-                                        <div>
-                                          <span className="text-slate-500">Expected: </span>
-                                          <span className="text-emerald-700 font-bold whitespace-pre-wrap">
-                                            {tr.expectedOutput}
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-slate-500">Your Output: </span>
-                                          <span className="text-rose-700 font-bold whitespace-pre-wrap">
-                                            {tr.actualOutput || "(No output)"}
-                                          </span>
-                                        </div>
-                                      </>
-                                    )}
-                                    {tr.error && (
-                                      <div className="text-rose-600 pt-1 border-t border-rose-100">
-                                        Error: {tr.error}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* AI Mentor Tab */}
-                  {activeConsoleTab === "mentor" && (
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => askAiMentor("hint")}
-                          disabled={mentorLoading}
-                          className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700 hover:bg-violet-100"
-                        >
-                          💡 Get a Hint
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => askAiMentor("explain-error")}
-                          disabled={mentorLoading || !errorOutput}
-                          className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
-                        >
-                          🔍 Explain My Error
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => askAiMentor("review")}
-                          disabled={mentorLoading}
-                          className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200"
-                        >
-                          ⚡ Code Review
-                        </button>
+                        )}
                       </div>
-
-                      {mentorLoading ? (
-                        <div className="flex items-center gap-2 text-xs text-violet-600 py-4">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Analyzing code with Gemini AI Mentor...
-                        </div>
-                      ) : mentorResponse ? (
-                        <div className="rounded-2xl border border-violet-200 bg-violet-50/70 p-5 text-xs text-slate-800 leading-relaxed shadow-xs">
-                          <MarkdownAnswer content={mentorResponse} />
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-400 py-3">
-                          Ask your AI Mentor for hints without spoiling the solution or to diagnose compilation/runtime errors.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 30-Second Assessment Start Countdown Modal */}
-      {countdownModalOpen && pendingAssessment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-indigo-500/30 bg-gradient-to-b from-slate-900 to-slate-950 p-6 sm:p-8 text-white shadow-2xl space-y-6">
-            <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-indigo-500/20 blur-3xl pointer-events-none" />
-
-            <div className="text-center space-y-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-indigo-400/30 bg-indigo-500/10 px-3.5 py-1 text-xs font-bold text-indigo-300">
-                <span className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
-                Assessment Readiness Verification
-              </div>
-              <h3 className="text-xl sm:text-2xl font-black text-white">
-                {pendingAssessment.itemTitle}
-              </h3>
-              <p className="text-xs text-slate-400">
-                {pendingAssessment.lectureTitle} • {pendingAssessment.details}
-              </p>
-            </div>
-
-            {/* Circular / Large 30-Second Countdown */}
-            <div className="flex flex-col items-center justify-center py-2">
-              <div className="relative flex items-center justify-center h-36 w-36">
-                <svg className="h-full w-full -rotate-90 transform" viewBox="0 0 120 120">
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="52"
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    fill="transparent"
-                    className="text-slate-800"
-                  />
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="52"
-                    stroke="currentColor"
-                    strokeWidth="8"
-                    fill="transparent"
-                    strokeDasharray={2 * Math.PI * 52}
-                    strokeDashoffset={2 * Math.PI * 52 * (1 - countdownSeconds / 30)}
-                    strokeLinecap="round"
-                    className="text-indigo-500 transition-all duration-1000 ease-linear"
-                  />
-                </svg>
-                <div className="absolute flex flex-col items-center">
-                  <span className="text-4xl font-black tracking-tight text-white font-mono">
-                    {countdownSeconds.toString().padStart(2, "0")}
-                  </span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300">
-                    Seconds
-                  </span>
-                </div>
-              </div>
-              <p className="mt-3 text-xs text-slate-400 text-center">
-                Assessment will start automatically in <span className="text-indigo-400 font-bold">{countdownSeconds}s</span>
-              </p>
-            </div>
-
-            {/* Instructions & Guidelines */}
-            <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-4 space-y-2 text-xs text-slate-300">
-              <div className="flex items-center gap-2 font-bold text-slate-200">
-                <ShieldCheck className="h-4 w-4 text-emerald-400" />
-                Assessment Instructions & Guidelines
-              </div>
-              <ul className="list-disc list-inside space-y-1 text-slate-400 text-[11px] leading-relaxed">
-                <li>Read input from standard input (STDIN) and print exact required format.</li>
-                <li>Public and hidden test cases will be validated by CodeTantra Judge.</li>
-                <li>AI Mentor hints and error diagnostics are active if you need guidance.</li>
-              </ul>
-            </div>
-
-            {/* Actions */}
-            <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleStartAssessmentNow}
-                className="flex-1 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white py-3 px-4 text-xs font-bold transition shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2"
-              >
-                <Play className="h-4 w-4 fill-white" />
-                <span>Start Assessment Now (Skip Wait)</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleCancelCountdown}
-                className="rounded-2xl border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300 py-3 px-5 text-xs font-semibold transition"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Official University Lab Manual / Record PDF Modal */}
-      {activeLab && (
-        <LabRecordModal
-          isOpen={labRecordModalOpen}
-          onClose={() => setLabRecordModalOpen(false)}
-          activeLab={activeLab}
-          userCodes={userCodes}
-          completedItems={completedItems}
-        />
-      )}
-
-      {/* Interactive AI Code Viva Challenge Modal */}
-      {vivaModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-          <div className="relative w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-3xl border border-indigo-500/40 bg-gradient-to-b from-slate-900 to-slate-950 p-6 sm:p-8 text-white shadow-2xl space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded-xl bg-indigo-600/30 p-2.5 border border-indigo-500/40">
-                  <Mic className="h-5 w-5 text-indigo-400" />
-                </div>
-                <div>
-                  <div className="text-[10px] font-black uppercase tracking-wider text-indigo-400">
-                    Anti-Cheat Code Verification &amp; Placement Viva
+                    ))}
                   </div>
-                  <h3 className="text-base sm:text-lg font-black text-white">
-                    AI Code Viva: {currentProblem.title}
-                  </h3>
-                </div>
+                )}
               </div>
+            )}
 
-              <button
-                type="button"
-                onClick={() => setVivaModalOpen(false)}
-                className="rounded-xl border border-slate-800 p-2 text-slate-400 hover:text-white hover:bg-slate-800"
-              >
-                <XCircle className="h-4 w-4" />
-              </button>
-            </div>
-
-            {vivaLoading ? (
-              <div className="py-12 flex flex-col items-center justify-center space-y-3 text-center">
-                <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
-                <p className="text-sm font-bold text-white">Analyzing your code logic...</p>
-                <p className="text-xs text-slate-400 max-w-md">
-                  Gemini AI is examining your data structures, loops, and time complexity to generate tailored viva questions.
-                </p>
-              </div>
-            ) : vivaSubmitted ? (
-              <div className="space-y-6 py-2">
-                <div className="text-center space-y-2">
-                  <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 mx-auto">
-                    <Trophy className="h-8 w-8 text-amber-300" />
-                  </div>
-                  <h4 className="text-xl font-black text-white">
-                    Viva Score: {vivaScore}%
-                  </h4>
-                  <p className="text-xs text-slate-300">
-                    {vivaScore >= 50
-                      ? "🎉 Excellent! Your conceptual understanding has been verified. You've earned the 'Viva Verified' badge."
-                      : "Review your solution logic and try again to verify conceptual understanding."}
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  {vivaQuestions.map((q, idx) => {
-                    const isCorrect = vivaAnswers[idx] === q.correctIndex;
-                    return (
-                      <div key={q.id} className="rounded-2xl border border-slate-800 bg-slate-900/90 p-4 text-xs space-y-2">
-                        <div className="flex items-center gap-2 font-bold">
-                          {isCorrect ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                          ) : (
-                            <XCircle className="h-4 w-4 text-rose-400 shrink-0" />
-                          )}
-                          <span className="text-slate-200">Q{idx + 1}: {q.question}</span>
-                        </div>
-                        <p className="text-[11px] text-slate-400 pl-6">
-                          <span className="font-semibold text-emerald-400">Correct Answer:</span> {q.options[q.correctIndex]}
-                        </p>
-                        <p className="text-[11px] text-indigo-300 pl-6 italic">
-                          💡 {q.explanation}
-                        </p>
+            {/* ---------------- MENTOR TAB ---------------- */}
+            {activeTab === "mentor" && (
+              <div className="flex flex-col h-full min-h-[460px] justify-between space-y-4">
+                {/* Chat Messages */}
+                <div className="space-y-3 overflow-y-auto max-h-[380px] pr-1">
+                  {mentorChat.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={cn(
+                        "rounded-2xl p-3.5 text-xs leading-relaxed max-w-[90%]",
+                        msg.sender === "user"
+                          ? "ml-auto bg-gradient-to-r from-violet-600 to-indigo-600 text-white"
+                          : "mr-auto border border-[#3e3e3e] bg-[#222222] text-[#e1e1e1]"
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold mb-1 opacity-80 text-[10px]">
+                        {msg.sender === "mentor" ? (
+                          <>
+                            <Sparkles className="h-3 w-3 text-violet-400" />
+                            <span>AI Mentor</span>
+                          </>
+                        ) : (
+                          <span>You</span>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setVivaModalOpen(false)}
-                  className="w-full rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white py-3 text-xs font-bold transition shadow-md shadow-indigo-600/30"
-                >
-                  Close &amp; Return to Workspace
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-3 text-xs text-indigo-200">
-                  Answer these 2 questions based on your submitted {selectedLanguage.toUpperCase()} solution to verify authenticity and claim the placement readiness badge.
-                </div>
-
-                <div className="space-y-6">
-                  {vivaQuestions.map((q, qIdx) => (
-                    <div key={q.id} className="space-y-2.5">
-                      <div className="text-xs font-bold text-slate-200">
-                        <span className="text-indigo-400 mr-1.5">Question {qIdx + 1}:</span>
-                        {q.question}
-                      </div>
-                      <div className="grid grid-cols-1 gap-2">
-                        {q.options.map((opt, optIdx) => {
-                          const isSelected = vivaAnswers[qIdx] === optIdx;
-                          return (
-                            <button
-                              key={optIdx}
-                              type="button"
-                              onClick={() => setVivaAnswers((prev) => ({ ...prev, [qIdx]: optIdx }))}
-                              className={cn(
-                                "w-full text-left rounded-xl p-3 text-xs transition border flex items-center justify-between",
-                                isSelected
-                                  ? "border-indigo-500 bg-indigo-600/30 text-white font-bold ring-1 ring-indigo-500"
-                                  : "border-slate-800 bg-slate-900/60 text-slate-300 hover:bg-slate-800"
-                              )}
-                            >
-                              <span>{opt}</span>
-                              {isSelected && <Check className="h-4 w-4 text-indigo-400" />}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      <div className="whitespace-pre-line">{msg.text}</div>
                     </div>
                   ))}
+
+                  {mentorLoading && (
+                    <div className="rounded-2xl border border-[#3e3e3e] bg-[#222222] p-3 text-xs text-[#8a8a8a] flex items-center gap-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />
+                      <span>AI Mentor is reasoning...</span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex items-center justify-between border-t border-slate-800 pt-4">
-                  <span className="text-[11px] text-slate-400">
-                    Answered: {Object.keys(vivaAnswers).length}/{vivaQuestions.length}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={Object.keys(vivaAnswers).length < vivaQuestions.length}
-                    onClick={handleVivaSubmit}
-                    className="rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 text-xs font-bold shadow-md shadow-emerald-600/20 disabled:opacity-40 transition flex items-center gap-1.5"
-                  >
-                    <span>Submit Viva Answers</span>
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
+                {/* Quick Prompts */}
+                <div className="space-y-2 pt-2 border-t border-[#333333]">
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => sendMentorMessage("Can you give me a subtle hint without giving away the answer?")}
+                      className="rounded-full bg-[#333333] hover:bg-[#3e3e3e] px-2.5 py-1 text-[11px] text-white flex items-center gap-1"
+                    >
+                      <Sparkles className="h-2.5 w-2.5 text-violet-400" />
+                      <span>Give me a hint</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sendMentorMessage("What is the optimal time and space complexity for this problem?")}
+                      className="rounded-full bg-[#333333] hover:bg-[#3e3e3e] px-2.5 py-1 text-[11px] text-white flex items-center gap-1"
+                    >
+                      <Zap className="h-2.5 w-2.5 text-amber-400" />
+                      <span>Optimal Complexity?</span>
+                    </button>
+                    {lastRunResult && !lastRunResult.allPassed && (
+                      <button
+                        type="button"
+                        onClick={() => sendMentorMessage("Can you explain why my code failed the test case?")}
+                        className="rounded-full bg-[#333333] hover:bg-[#3e3e3e] px-2.5 py-1 text-[11px] text-red-300 flex items-center gap-1 border border-red-900/40"
+                      >
+                        <AlertCircle className="h-2.5 w-2.5 text-red-400" />
+                        <span>Explain Failure</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Input Box */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={mentorInput}
+                      onChange={(e) => setMentorInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && sendMentorMessage()}
+                      placeholder="Ask AI Mentor anything..."
+                      className="flex-1 rounded-xl border border-[#3e3e3e] bg-[#1e1e1e] px-3.5 py-2 text-xs text-white placeholder-[#6e6e6e] outline-none focus:border-violet-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => sendMentorMessage()}
+                      disabled={mentorLoading || !mentorInput.trim()}
+                      className="rounded-xl bg-violet-600 hover:bg-violet-500 p-2 text-white disabled:opacity-40 transition"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
           </div>
         </div>
+
+        {/* ------------------------------------------------------------ */}
+        {/* RIGHT PANE: CODE EDITOR + TESTCASE / TEST RESULT DRAWER      */}
+        {/* ------------------------------------------------------------ */}
+        <div className="flex w-full md:w-1/2 flex-col bg-[#1e1e1e]">
+          {/* Editor Header Controls */}
+          <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#333333] bg-[#1a1a1a] px-3">
+            {/* Language Selector Dropdown */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-bold text-[#8a8a8a] hidden sm:inline">
+                Language:
+              </span>
+              <div className="relative">
+                <select
+                  value={selectedLanguage}
+                  onChange={(e) => setSelectedLanguage(e.target.value as LanguageId)}
+                  className="rounded-md border border-[#3e3e3e] bg-[#282828] px-2.5 py-1 text-xs font-bold text-white outline-none cursor-pointer hover:bg-[#333333] transition"
+                >
+                  <option value="cpp">C++ (g++ 17)</option>
+                  <option value="python">Python 3 (3.11)</option>
+                  <option value="c">C (gcc 11)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Editor Action Buttons */}
+            <div className="flex items-center gap-1 sm:gap-2">
+              <button
+                type="button"
+                onClick={handleResetCode}
+                title="Reset starter template"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[#8a8a8a] hover:bg-[#282828] hover:text-white transition"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <span className="hidden sm:inline">Reset</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(editorCode);
+                  setCopiedCode(true);
+                  setTimeout(() => setCopiedCode(false), 2000);
+                }}
+                title="Copy code"
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[#8a8a8a] hover:bg-[#282828] hover:text-white transition"
+              >
+                <Copy className="h-3 w-3" />
+                <span className="hidden sm:inline">{copiedCode ? "Copied" : "Copy"}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Monaco-Style Dark Code Editor Area */}
+          <div className="relative flex-1 bg-[#1e1e1e] font-mono overflow-hidden">
+            {/* Gutter Line Numbers + Textarea */}
+            <div className="flex h-full w-full">
+              {/* Line Numbers Gutter */}
+              <div className="w-12 shrink-0 select-none bg-[#181818] py-4 text-right pr-3 font-mono text-xs text-[#555555] overflow-hidden leading-relaxed">
+                {editorCode.split("\n").map((_, i) => (
+                  <div key={i}>{i + 1}</div>
+                ))}
+              </div>
+
+              {/* Textarea Code Input */}
+              <textarea
+                ref={textareaRef}
+                value={editorCode}
+                onChange={(e) => {
+                  setTypedChars((p) => p + 1);
+                  handleCodeChange(e.target.value);
+                }}
+                onPaste={(e) => {
+                  const text = e.clipboardData.getData("text");
+                  if (text) {
+                    setPasteCount((p) => p + 1);
+                    setPastedChars((p) => p + text.length);
+                    if (text.length > 60 || text.split("\n").length > 4) {
+                      setLargePasteDetected(true);
+                    }
+                  }
+                }}
+                onKeyDown={handleKeyDown}
+                spellCheck={false}
+                className="flex-1 resize-none bg-transparent p-4 text-xs font-mono text-[#7ee787] leading-relaxed outline-none selection:bg-blue-600/40 overflow-y-auto"
+                placeholder={`Write your ${selectedLanguage} solution here...`}
+              />
+            </div>
+          </div>
+
+          {/* ---------------------------------------------------------- */}
+          {/* BOTTOM CONSOLE DRAWER (TESTCASE & TEST RESULT)             */}
+          {/* ---------------------------------------------------------- */}
+          <div
+            className={cn(
+              "border-t border-[#333333] bg-[#222222] transition-all flex flex-col",
+              consoleOpen ? "h-64" : "h-9"
+            )}
+          >
+            {/* Console Drawer Header */}
+            <div className="flex h-9 shrink-0 items-center justify-between border-b border-[#333333] bg-[#1a1a1a] px-3">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConsoleOpen(true);
+                    setConsoleTab("testcase");
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition",
+                    consoleTab === "testcase" && consoleOpen
+                      ? "bg-[#282828] text-white"
+                      : "text-[#8a8a8a] hover:text-white"
+                  )}
+                >
+                  <Terminal className="h-3 w-3 text-emerald-400" />
+                  <span>Testcase</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConsoleOpen(true);
+                    setConsoleTab("result");
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold transition",
+                    consoleTab === "result" && consoleOpen
+                      ? "bg-[#282828] text-white"
+                      : "text-[#8a8a8a] hover:text-white"
+                  )}
+                >
+                  <CheckCircle2 className="h-3 w-3 text-[#2cbb5d]" />
+                  <span>Test Result</span>
+                  {lastRunResult && (
+                    <span
+                      className={cn(
+                        "h-1.5 w-1.5 rounded-full",
+                        lastRunResult.allPassed ? "bg-[#2cbb5d]" : "bg-red-500"
+                      )}
+                    />
+                  )}
+                </button>
+              </div>
+
+              {/* Minimize / Maximize Chevron */}
+              <button
+                type="button"
+                onClick={() => setConsoleOpen(!consoleOpen)}
+                className="text-[#8a8a8a] hover:text-white p-1"
+                title={consoleOpen ? "Collapse Console" : "Expand Console"}
+              >
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 transition-transform",
+                    !consoleOpen && "rotate-180"
+                  )}
+                />
+              </button>
+            </div>
+
+            {/* Console Drawer Body */}
+            {consoleOpen && (
+              <div className="flex-1 overflow-y-auto p-4 text-xs font-mono">
+                {/* 1. TESTCASE TAB */}
+                {consoleTab === "testcase" && (
+                  <div className="space-y-3">
+                    {/* Case Tabs */}
+                    <div className="flex items-center gap-2">
+                      {currentProblem.testCases
+                        .filter((tc) => !tc.isSecret)
+                        .map((_, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setActiveTestCaseIdx(idx)}
+                            className={cn(
+                              "rounded-md px-3 py-1 font-semibold transition",
+                              activeTestCaseIdx === idx
+                                ? "bg-[#333333] text-white border border-[#444444]"
+                                : "text-[#8a8a8a] hover:bg-[#282828] hover:text-white"
+                            )}
+                          >
+                            Case {idx + 1}
+                          </button>
+                        ))}
+                    </div>
+
+                    {/* Input Parameter Box */}
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-bold text-[#8a8a8a]">
+                        Input Parameters (STDIN):
+                      </div>
+                      <textarea
+                        value={currentCustomInput}
+                        onChange={(e) => handleCustomInputChange(e.target.value)}
+                        rows={4}
+                        className="w-full rounded-xl border border-[#3e3e3e] bg-[#181818] p-3 text-xs text-white font-mono leading-relaxed outline-none focus:border-[#ffa116]"
+                        placeholder="Provide test input here..."
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. TEST RESULT TAB */}
+                {consoleTab === "result" && (
+                  <div className="space-y-4">
+                    {running ? (
+                      <div className="flex h-32 flex-col items-center justify-center space-y-2 text-[#8a8a8a]">
+                        <Loader2 className="h-6 w-6 animate-spin text-[#ffa116]" />
+                        <p className="text-xs font-sans">
+                          Evaluating your solution on isolated runner...
+                        </p>
+                      </div>
+                    ) : !lastRunResult ? (
+                      <div className="flex h-32 flex-col items-center justify-center text-[#666666] text-xs font-sans">
+                        <Play className="h-6 w-6 mb-1 text-[#444444]" />
+                        <span>Run code or submit to view test evaluation results</span>
+                      </div>
+                    ) : lastRunResult.status === "Compile Error" ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+                          <X className="h-4 w-4" />
+                          <span>Compile Error / Runtime Exception</span>
+                        </div>
+                        <pre className="rounded-xl border border-red-900/50 bg-red-950/20 p-3 text-xs text-red-300 overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                          {lastRunResult.stderr || "Compilation failed."}
+                        </pre>
+                      </div>
+                    ) : lastRunResult.isSubmit && lastRunResult.allPassed ? (
+                      /* Final Submit Celebration: LeetCode Accepted Screen */
+                      <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#2cbb5d] text-white">
+                              <Check className="h-5 w-5 stroke-[3]" />
+                            </div>
+                            <div>
+                              <div className="text-lg font-black text-[#2cbb5d]">
+                                Accepted
+                              </div>
+                              <div className="text-[11px] text-[#8a8a8a] font-sans">
+                                Passed all {lastRunResult.testResults.length} test cases!
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setLabRecordOpen(true)}
+                            className="flex items-center gap-1.5 rounded-lg bg-[#2cbb5d] hover:bg-[#28a745] px-3.5 py-1.5 text-xs font-bold text-white transition shadow-sm font-sans"
+                          >
+                            <FileSpreadsheet className="h-3.5 w-3.5" />
+                            <span>Export Verified Lab Report</span>
+                          </button>
+                        </div>
+
+                        {/* Runtime & Memory Beats Cards */}
+                        <div className="grid grid-cols-2 gap-3 pt-1">
+                          <div className="rounded-xl border border-[#3e3e3e] bg-[#1c1c1c] p-3 space-y-1">
+                            <span className="text-[11px] text-[#8a8a8a] font-sans">
+                              Runtime
+                            </span>
+                            <div className="text-base font-bold text-white">
+                              {lastRunResult.runtimeMs} ms
+                            </div>
+                            <div className="text-[11px] text-emerald-400 font-sans">
+                              Beats <strong>{lastRunResult.runtimeBeats}%</strong> of submissions
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-[#3e3e3e] bg-[#1c1c1c] p-3 space-y-1">
+                            <span className="text-[11px] text-[#8a8a8a] font-sans">
+                              Memory
+                            </span>
+                            <div className="text-base font-bold text-white">
+                              {lastRunResult.memoryMb} MB
+                            </div>
+                            <div className="text-[11px] text-blue-400 font-sans">
+                              Beats <strong>{lastRunResult.memoryBeats}%</strong> of submissions
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Run Sample Results View / Wrong Answer */
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "text-sm font-black",
+                                lastRunResult.allPassed
+                                  ? "text-[#2cbb5d]"
+                                  : "text-red-400"
+                              )}
+                            >
+                              {lastRunResult.status}
+                            </span>
+                            <span className="text-[#8a8a8a] text-[11px]">
+                              Runtime: {lastRunResult.runtimeMs} ms
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {lastRunResult.testResults.map((tr, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => setActiveTestCaseIdx(i)}
+                                className={cn(
+                                  "rounded px-2.5 py-0.5 text-[11px] font-bold transition flex items-center gap-1",
+                                  activeTestCaseIdx === i
+                                    ? "bg-[#333333] text-white border border-[#444444]"
+                                    : "text-[#8a8a8a] hover:text-white"
+                                )}
+                              >
+                                <span>Case {i + 1}</span>
+                                <span
+                                  className={cn(
+                                    "h-1.5 w-1.5 rounded-full",
+                                    tr.passed ? "bg-[#2cbb5d]" : "bg-red-400"
+                                  )}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Selected Test Case Details */}
+                        {lastRunResult.testResults[activeTestCaseIdx] && (
+                          <div className="rounded-xl border border-[#3e3e3e] bg-[#181818] p-3.5 space-y-2 text-xs">
+                            <div>
+                              <strong className="text-[#8a8a8a]">Input: </strong>
+                              <span className="text-white whitespace-pre">
+                                {lastRunResult.testResults[activeTestCaseIdx].input}
+                              </span>
+                            </div>
+                            <div>
+                              <strong className="text-[#8a8a8a]">Output: </strong>
+                              <span
+                                className={cn(
+                                  "whitespace-pre font-bold",
+                                  lastRunResult.testResults[activeTestCaseIdx].passed
+                                    ? "text-[#2cbb5d]"
+                                    : "text-red-400"
+                                )}
+                              >
+                                {lastRunResult.testResults[activeTestCaseIdx].actualOutput ||
+                                  "(empty)"}
+                              </span>
+                            </div>
+                            <div>
+                              <strong className="text-[#8a8a8a]">Expected: </strong>
+                              <span className="text-emerald-400 whitespace-pre">
+                                {lastRunResult.testResults[activeTestCaseIdx].expectedOutput}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ============================================================== */}
+      {/* 3. PROBLEM LIST DRAWER / MODAL NAVIGATOR                        */}
+      {/* ============================================================== */}
+      {drawerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
+          <div className="relative flex flex-col w-full max-w-4xl max-h-[85vh] rounded-3xl border border-[#3e3e3e] bg-[#1e1e1e] shadow-2xl overflow-hidden">
+            {/* Drawer Top Header */}
+            <div className="flex items-center justify-between border-b border-[#333333] px-6 py-4 bg-[#262626]">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#ffa116] text-black font-black text-xs">
+                  &lt;/&gt;
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    LeetCode Problemset Navigator
+                  </h3>
+                  <p className="text-[11px] text-[#8a8a8a]">
+                    Select any curated challenge to code &amp; test instantly
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDrawerOpen(false)}
+                className="rounded-lg p-1.5 text-[#8a8a8a] hover:bg-[#333333] hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Search & Filter Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#333333] px-6 py-3 bg-[#202020]">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[#8a8a8a]" />
+                <input
+                  type="text"
+                  value={drawerSearch}
+                  onChange={(e) => setDrawerSearch(e.target.value)}
+                  placeholder="Search questions by title, number, or tag..."
+                  className="w-full rounded-xl border border-[#3e3e3e] bg-[#181818] py-2 pl-9 pr-3 text-xs text-white outline-none focus:border-[#ffa116]"
+                />
+              </div>
+
+              {/* Difficulty Filter */}
+              <div className="flex items-center gap-1">
+                {(["ALL", "EASY", "MEDIUM", "HARD"] as const).map((diff) => (
+                  <button
+                    key={diff}
+                    type="button"
+                    onClick={() => setDrawerDiffFilter(diff)}
+                    className={cn(
+                      "rounded-lg px-2.5 py-1 text-[11px] font-bold uppercase transition",
+                      drawerDiffFilter === diff
+                        ? "bg-[#ffa116] text-black"
+                        : "text-[#8a8a8a] hover:bg-[#282828] hover:text-white"
+                    )}
+                  >
+                    {diff}
+                  </button>
+                ))}
+              </div>
+
+              {/* Category Filter */}
+              <div className="flex items-center gap-1">
+                {(["ALL", "DSA", "C++", "PYTHON", "C"] as const).map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setDrawerCatFilter(cat)}
+                    className={cn(
+                      "rounded-lg px-2.5 py-1 text-[11px] font-bold uppercase transition",
+                      drawerCatFilter === cat
+                        ? "bg-blue-600 text-white"
+                        : "text-[#8a8a8a] hover:bg-[#282828] hover:text-white"
+                    )}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Problem Table */}
+            <div className="flex-1 overflow-y-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-[#262626] text-[#8a8a8a] border-b border-[#333333]">
+                  <tr>
+                    <th className="py-2.5 px-4 font-semibold w-12 text-center">Status</th>
+                    <th className="py-2.5 px-4 font-semibold">Title</th>
+                    <th className="py-2.5 px-4 font-semibold w-24">Acceptance</th>
+                    <th className="py-2.5 px-4 font-semibold w-24">Difficulty</th>
+                    <th className="py-2.5 px-4 font-semibold w-24">Track</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#2e2e2e]">
+                  {filteredProblems.map((prob) => {
+                    const idx = LEETCODE_PROBLEMS.findIndex((p) => p.id === prob.id);
+                    const isSolved = solvedProblemIds.has(prob.id);
+                    const isSelected = prob.id === currentProblem.id;
+
+                    return (
+                      <tr
+                        key={prob.id}
+                        onClick={() => goToProblem(idx)}
+                        className={cn(
+                          "cursor-pointer transition hover:bg-[#282828]",
+                          isSelected && "bg-[#282828]/80"
+                        )}
+                      >
+                        <td className="py-3 px-4 text-center">
+                          {isSolved ? (
+                            <CheckCircle2 className="h-4 w-4 text-[#2cbb5d] mx-auto" />
+                          ) : (
+                            <span className="h-2 w-2 rounded-full bg-[#444444] inline-block" />
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-white hover:text-[#ffa116] transition">
+                            {prob.problemNumber}. {prob.title}
+                          </div>
+                          <div className="text-[11px] text-[#8a8a8a] flex items-center gap-1.5 mt-0.5">
+                            {prob.tags.slice(0, 3).map((t) => (
+                              <span key={t} className="rounded bg-[#2a2a2a] px-1.5 py-0.2">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-[#8a8a8a] font-mono">
+                          {prob.acceptance}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[11px] font-bold capitalize",
+                              getDiffBadge(prob.difficulty)
+                            )}
+                          >
+                            {prob.difficulty}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-[#a0a0a0] font-semibold">
+                          {prob.category}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Drawer Footer */}
+            <div className="flex items-center justify-between border-t border-[#333333] px-6 py-3 bg-[#262626] text-xs text-[#8a8a8a]">
+              <span>
+                Showing {filteredProblems.length} of {LEETCODE_PROBLEMS.length} challenges
+              </span>
+              <button
+                type="button"
+                onClick={pickRandomProblem}
+                className="flex items-center gap-1 font-bold text-[#ffa116] hover:underline"
+              >
+                <Shuffle className="h-3 w-3" />
+                <span>Pick Random</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
+
+      {/* ============================================================== */}
+      {/* 4. LAB RECORD MODAL (OFFICIAL UNIVERSITY EXPORT)               */}
+      {/* ============================================================== */}
+      <LabRecordModal
+        isOpen={labRecordOpen}
+        onClose={() => setLabRecordOpen(false)}
+        activeLab={fallbackLabCourse}
+        userCodes={userCodes}
+        completedItems={solvedProblemIds}
+        studentName="Puskar Kumar"
+        rollNumber="24CSE0142"
+      />
     </div>
   );
 }
@@ -1939,12 +1970,15 @@ export default function CodingPracticePage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[400px] items-center justify-center p-8 text-sm text-slate-400">
-          <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+        <div className="flex h-screen items-center justify-center bg-[#1a1a1a] text-white">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-6 w-6 animate-spin text-[#ffa116]" />
+            <span className="text-sm font-semibold">Loading LeetCode Workspace...</span>
+          </div>
         </div>
       }
     >
-      <CodingPracticeInner />
+      <LeetCodeWorkspace />
     </Suspense>
   );
 }
