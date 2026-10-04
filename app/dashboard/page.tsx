@@ -264,10 +264,7 @@ export default function DashboardPage() {
             </span>
             <div>
               <div className="text-xs font-bold uppercase tracking-wide text-rose-100">
-                Live now · class {liveBanner.code}
-                {liveBanner.joinUntil && liveBanner.joinUntil > Date.now()
-                  ? ` · join ${Math.max(1, Math.ceil((liveBanner.joinUntil - Date.now()) / 60000))} min`
-                  : ""}
+                Live now · Unlimited Class · {liveBanner.code}
               </div>
               <div className="text-sm font-extrabold">
                 {liveBanner.title}

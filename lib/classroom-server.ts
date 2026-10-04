@@ -1768,9 +1768,9 @@ export async function startLive(
     const now = Date.now();
     const start = scheduledAt && scheduledAt > now ? scheduledAt : now;
     const isScheduled = !!(scheduledAt && scheduledAt > now);
-    // Session runs until teacher Ends (soft 12h cap). Join window = 15 min.
+    // Session runs until teacher ends it (unlimited duration, soft 12h safety cap).
     const endsAt = start + LIVE_SOFT_MAX_MS;
-    const joinUntil = start + 15 * 60_000;
+    const joinUntil = start + LIVE_SOFT_MAX_MS;
     const cleanMeetUrl =
       meetUrl?.trim() ||
       `https://meet.jit.si/smartlearn-${code.toLowerCase().replace(/[^a-z0-9]/g, "")}-${now.toString(36)}`;
@@ -1834,7 +1834,8 @@ export async function startLive(
             endsAt: sess.endsAt,
             joinUntil:
               sess.joinUntil ||
-              (sess.startedAt || Date.now()) + 15 * 60_000,
+              sess.endsAt ||
+              (sess.startedAt || Date.now()) + LIVE_SOFT_MAX_MS,
             scheduledAt: sess.scheduledAt,
             teacherName: room.teacherName,
             className: room.name,

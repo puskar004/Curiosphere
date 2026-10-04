@@ -433,10 +433,9 @@ export default function LiveClassPage() {
                   <Shield className="h-3 w-3 text-emerald-600" /> Attendance: Present
                 </span>
               )}
-              <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
-                {live.joinUntil && live.joinUntil > Date.now()
-                  ? `Window: ${Math.max(1, Math.ceil((live.joinUntil - Date.now()) / 60000))}m`
-                  : "Active"}
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Unlimited Time
               </span>
             </div>
           </div>
