@@ -1,11 +1,15 @@
-import { clerkClient } from "@clerk/nextjs/server";
 import { promises as fs } from "fs";
 import path from "path";
+import { findClassroomByCode, getTeacherMeta } from "@/lib/classroom-server";
+import type { Classroom } from "@/lib/classroom-types";
 
 export type RoomMsg = {
   id: string;
+  classCode: string;
+  className?: string;
   author: string;
   authorId: string;
+  role: "teacher" | "student";
   text: string;
   imageDataUrl?: string;
   replyToId?: string;
@@ -14,36 +18,36 @@ export type RoomMsg = {
   at: number;
 };
 
-type Meta = {
-  role?: string;
-  wallPosts?: RoomMsg[];
-  [k: string]: unknown;
-};
+/** Keep common-room posts for 7 days */
+export const ROOM_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Keep common-room posts for at least 2 days */
-export const ROOM_TTL_MS = 2 * 24 * 60 * 60 * 1000;
-
-function filePath() {
+function getStoreDir(): string {
   const base = process.env.VERCEL ? "/tmp" : path.join(process.cwd(), ".data");
-  return path.join(base, "smartlearn-common-room.json");
+  return path.join(base, "common-rooms");
 }
 
-function fresh(m: RoomMsg) {
+function getFilePath(classCode: string): string {
+  const safe = classCode.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "");
+  return path.join(getStoreDir(), `cr-${safe}.json`);
+}
+
+function isFresh(m: RoomMsg): boolean {
   return Date.now() - (m.at || 0) < ROOM_TTL_MS;
 }
 
-async function readFileStore(): Promise<RoomMsg[]> {
+async function readFileStore(classCode: string): Promise<RoomMsg[]> {
+  const fp = getFilePath(classCode);
   try {
-    const raw = await fs.readFile(filePath(), "utf8");
+    const raw = await fs.readFile(fp, "utf8");
     const j = JSON.parse(raw) as { messages?: RoomMsg[] };
-    return (j.messages || []).filter(fresh);
+    return (j.messages || []).filter(isFresh);
   } catch {
     return [];
   }
 }
 
-async function writeFileStore(messages: RoomMsg[]) {
-  const fp = filePath();
+async function writeFileStore(classCode: string, messages: RoomMsg[]): Promise<void> {
+  const fp = getFilePath(classCode);
   try {
     await fs.mkdir(path.dirname(fp), { recursive: true });
   } catch {
@@ -51,75 +55,92 @@ async function writeFileStore(messages: RoomMsg[]) {
   }
   await fs.writeFile(
     fp,
-    JSON.stringify({ messages: messages.filter(fresh) }),
+    JSON.stringify({ messages: messages.filter(isFresh) }),
     "utf8"
   );
 }
 
-function metaOf(user: {
-  publicMetadata?: Record<string, unknown> | null;
-}): Meta {
-  const m = (user.publicMetadata || {}) as Record<string, unknown>;
-  return (m.smartlearn as Meta) || {};
+/**
+ * Verify whether a user is an authorized member of a classroom (either owner teacher or enrolled student).
+ */
+export async function isUserAuthorizedForClass(
+  classCode: string,
+  userId: string
+): Promise<{
+  authorized: boolean;
+  role: "teacher" | "student";
+  classroom?: Classroom;
+}> {
+  const normalized = classCode.trim().toUpperCase();
+  if (!normalized || !userId) {
+    return { authorized: false, role: "student" };
+  }
+
+  const hit = await findClassroomByCode(normalized).catch(() => null);
+  if (!hit || !hit.classroom) {
+    return { authorized: false, role: "student" };
+  }
+
+  const { teacherId, classroom } = hit;
+  if (teacherId === userId) {
+    return { authorized: true, role: "teacher", classroom };
+  }
+
+  // Check if user is in classroom.students
+  const isEnrolled = (classroom.students || []).some(
+    (s) => s.studentId === userId
+  );
+  if (isEnrolled) {
+    return { authorized: true, role: "student", classroom };
+  }
+
+  // Also check if user has student metadata with joinedClassCodes
+  try {
+    const meta = await getTeacherMeta(userId);
+    const joinedList = (meta.joinedClassCodes || []).map((c: string) =>
+      c.trim().toUpperCase()
+    );
+    if (
+      joinedList.includes(normalized) ||
+      (meta.joinedClassCode &&
+        meta.joinedClassCode.trim().toUpperCase() === normalized)
+    ) {
+      return { authorized: true, role: "student", classroom };
+    }
+  } catch {
+    // ignore
+  }
+
+  return { authorized: false, role: "student", classroom };
 }
 
-export async function loadAllMessages(): Promise<RoomMsg[]> {
-  const map = new Map<string, RoomMsg>();
-
-  for (const m of await readFileStore()) {
-    if (fresh(m)) map.set(m.id, m);
-  }
-
-  try {
-    const client = await clerkClient();
-    let offset = 0;
-    for (let page = 0; page < 15; page++) {
-      const res = await client.users.getUserList({ limit: 100, offset });
-      for (const u of res.data) {
-        const posts = metaOf(u).wallPosts || [];
-        for (const p of posts) {
-          if (p?.id && fresh(p)) map.set(p.id, p);
-        }
-      }
-      offset += 100;
-      if (offset >= (res.totalCount || 0) || res.data.length === 0) break;
-    }
-  } catch (e) {
-    console.error("loadAllMessages clerk", e);
-  }
-
-  return Array.from(map.values())
+/**
+ * Load messages exclusively for a specific classroom.
+ */
+export async function loadClassMessages(classCode: string): Promise<RoomMsg[]> {
+  const list = await readFileStore(classCode);
+  return list
+    .filter(isFresh)
     .sort((a, b) => b.at - a.at)
     .slice(0, 300);
 }
 
-export async function addMessage(msg: RoomMsg): Promise<RoomMsg[]> {
-  const fileMsgs = await readFileStore();
-  const nextFile = [msg, ...fileMsgs.filter((m) => m.id !== msg.id && fresh(m))]
-    .filter(fresh)
+/**
+ * Add a message strictly tagged to a specific classroom.
+ */
+export async function addClassMessage(
+  classCode: string,
+  msg: RoomMsg
+): Promise<RoomMsg[]> {
+  const normalized = classCode.trim().toUpperCase();
+  const existing = await readFileStore(normalized);
+  const next = [
+    msg,
+    ...existing.filter((m) => m.id !== msg.id && isFresh(m)),
+  ]
+    .filter(isFresh)
     .slice(0, 300);
-  await writeFileStore(nextFile);
 
-  try {
-    const client = await clerkClient();
-    const user = await client.users.getUser(msg.authorId);
-    const sm = metaOf(user);
-    const wallPosts = [msg, ...(sm.wallPosts || [])]
-      .filter((m, i, arr) => arr.findIndex((x) => x.id === m.id) === i)
-      .filter(fresh)
-      .slice(0, 80);
-    await client.users.updateUserMetadata(msg.authorId, {
-      publicMetadata: {
-        ...user.publicMetadata,
-        smartlearn: {
-          ...sm,
-          wallPosts,
-        },
-      },
-    });
-  } catch (e) {
-    console.error("addMessage metadata", e);
-  }
-
-  return loadAllMessages();
+  await writeFileStore(normalized, next);
+  return next;
 }

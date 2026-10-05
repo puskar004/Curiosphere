@@ -195,48 +195,32 @@ export default function ProfilePage() {
           </div>
         )}
 
-        <div className="mt-5 rounded-2xl border border-violet-100 bg-violet-50/50 p-4">
-          <div className="text-sm font-bold text-violet-900">Who are you?</div>
-          <p className="mt-1 text-[11px] text-violet-700/80">
-            Teacher mode shows only teacher tools (students, uploads, live).
-            Student mode shows study tools only.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (!userId) return;
-                setRole(userId, "student");
-                setRoleUi("student");
-                emitRoleChanged();
-                window.location.href = "/dashboard";
-              }}
-              className={`rounded-full px-3 py-1.5 text-[11px] font-bold ${
-                role === "student"
-                  ? "bg-slate-900 text-white"
-                  : "bg-white text-slate-600 ring-1 ring-slate-200"
-              }`}
-            >
-              I am a student
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!userId) return;
-                setRole(userId, "teacher");
-                setRoleUi("teacher");
-                emitRoleChanged();
-                window.location.href = "/teacher";
-              }}
-              className={`rounded-full px-3 py-1.5 text-[11px] font-bold ${
-                role === "teacher"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-white text-slate-600 ring-1 ring-slate-200"
-              }`}
-            >
-              I am a teacher
-            </button>
+        <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                Account Role (Permanent)
+              </div>
+              <div className="mt-1 text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                {role === "teacher" ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-50 border border-indigo-200 px-3 py-1 text-xs font-bold text-indigo-700">
+                    👨‍🏫 Verified Faculty / Teacher
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs font-bold text-emerald-700">
+                    🎓 Verified Student
+                  </span>
+                )}
+              </div>
+            </div>
+            <span className="rounded-full bg-slate-200/70 px-2.5 py-1 text-[10px] font-bold text-slate-600">
+              🔒 Locked
+            </span>
           </div>
+          <p className="mt-2 text-[11px] text-slate-500">
+            Role is permanently registered with your college account. Role switching is disabled to protect academic integrity and grade access.
+          </p>
+
           {role === "student" && (
             <div className="mt-4 border-t border-violet-100 pt-3">
               <div className="text-xs font-bold text-violet-900">

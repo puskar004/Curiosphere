@@ -273,45 +273,25 @@ export default function AppSidebar() {
             </Link>
           );
         })}
-        {!isTeacher && userId && (
-          <button
-            type="button"
-            title="Join as Teacher"
-            onClick={() => {
-              setRole(userId, "teacher");
-              emitRoleChanged();
-              window.location.href = "/teacher";
-            }}
+        {userId && (
+          <div
             className={cn(
-              "group flex w-full items-center rounded-xl text-left text-sm font-bold text-indigo-700 transition hover:bg-indigo-50",
-              showLabels ? "gap-3 px-3 py-2" : "justify-center px-2 py-2"
+              "flex items-center rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500 border border-slate-100",
+              showLabels ? "gap-2.5" : "justify-center px-1"
             )}
+            title={isTeacher ? "Teacher Account (Verified)" : "Student Account (Verified)"}
           >
-            <GraduationCap className="h-5 w-5 shrink-0 text-indigo-600" />
+            {isTeacher ? (
+              <GraduationCap className="h-4 w-4 shrink-0 text-indigo-600" />
+            ) : (
+              <BookOpen className="h-4 w-4 shrink-0 text-emerald-600" />
+            )}
             {showLabels && (
-              <span className="truncate whitespace-nowrap">Join as Teacher</span>
+              <span className="truncate text-[11px] font-bold">
+                {isTeacher ? "Verified Teacher" : "Verified Student"}
+              </span>
             )}
-          </button>
-        )}
-        {isTeacher && userId && (
-          <button
-            type="button"
-            title="Student panel"
-            onClick={() => {
-              setRole(userId, "student");
-              emitRoleChanged();
-              window.location.href = "/dashboard";
-            }}
-            className={cn(
-              "group flex w-full items-center rounded-xl text-left text-sm font-bold text-violet-700 transition hover:bg-violet-50",
-              showLabels ? "gap-3 px-3 py-2" : "justify-center px-2 py-2"
-            )}
-          >
-            <BookOpen className="h-5 w-5 shrink-0 text-violet-600" />
-            {showLabels && (
-              <span className="truncate whitespace-nowrap">Student panel</span>
-            )}
-          </button>
+          </div>
         )}
       </div>
     </aside>

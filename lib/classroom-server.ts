@@ -681,6 +681,10 @@ export async function setUserRole(
 ) {
   const meta = await getTeacherMeta(userId);
   if (meta.role === role) return role; // no Clerk write
+  // Once a role is set on server, lock it to prevent arbitrary flipping
+  if (meta.role) {
+    return meta.role as "student" | "teacher";
+  }
   await saveMeta(userId, { ...meta, role });
   return role;
 }

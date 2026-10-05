@@ -356,32 +356,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Separate teacher panel entry — not mixed into student tools */}
-      {isSignedIn && userId && (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-indigo-100/80 bg-white/80 px-4 py-3 shadow-[0_8px_30px_-12px_rgba(79,70,229,0.25)] backdrop-blur-sm">
-          <div>
-            <div className="text-sm font-bold text-slate-900">
-              Are you a teacher?
-            </div>
-            <p className="text-[11px] text-slate-500">
-              Opens a separate Teacher panel (classes, PDFs, live). Student tools
-              stay here.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setRole(userId, "teacher");
-              emitRoleChanged();
-              window.location.href = "/teacher";
-            }}
-            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-600/35 ring-1 ring-white/30"
-          >
-            <GraduationCap className="h-4 w-4" />
-            Join as Teacher
-          </button>
-        </div>
-      )}
+
 
       {/* Stats row */}
       {isSignedIn && p && (

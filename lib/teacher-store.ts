@@ -32,6 +32,11 @@ export function getRole(userId: string): "student" | "teacher" {
 }
 
 export function setRole(userId: string, role: "student" | "teacher") {
+  const existing = localStorage.getItem(ROLE_KEY + userId);
+  if (existing && existing !== role) {
+    // Role is locked; prevent tampering
+    return;
+  }
   localStorage.setItem(ROLE_KEY + userId, role);
   try {
     window.dispatchEvent(new Event("sl-role-changed"));

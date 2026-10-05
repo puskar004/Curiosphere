@@ -607,6 +607,31 @@ function TeacherInner() {
     );
   }
 
+  const userRole = getRole(userId);
+  if (userRole !== "teacher") {
+    return (
+      <div className="mx-auto max-w-lg px-6 py-24 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 border border-rose-200">
+          <Lock className="h-6 w-6" />
+        </div>
+        <h2 className="mt-4 text-lg font-black text-slate-900">
+          Teacher Portal Access Restricted
+        </h2>
+        <p className="mt-2 text-xs text-slate-500 leading-relaxed">
+          Your account is registered as a Student. Teacher tools (grading, assignment controls, live classes, lab gating) are strictly restricted to verified faculty accounts.
+        </p>
+        <div className="mt-6">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-indigo-600/20 hover:bg-indigo-700"
+          >
+            Return to Student Dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   const create = async () => {
     setBusy(true);
     try {
