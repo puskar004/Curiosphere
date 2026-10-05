@@ -37,54 +37,41 @@ def ensure_tools():
     log("All Android SDK tools & JBR verified.")
 
 def create_icons(res_dir):
-    # Generates launcher icons of various densities
+    # Ensure 512x512 original logo PNG exists from curiosphere-logo.svg
+    src_icon = WORKSPACE / "public" / "curiosphere-icon-512.png"
+    if not src_icon.exists():
+        subprocess.check_call(
+            ["node", "-e", "const sharp = require('sharp'); sharp('public/curiosphere-logo.svg').resize(512, 512).png().toFile('public/curiosphere-icon-512.png')"],
+            cwd=str(WORKSPACE)
+        )
+    
+    orig = Image.open(src_icon).convert("RGBA")
+
     densities = {
-        "mipmap-mdpi": (48, 48),
-        "mipmap-hdpi": (72, 72),
-        "mipmap-xhdpi": (96, 96),
-        "mipmap-xxhdpi": (144, 144),
-        "mipmap-xxxhdpi": (192, 192),
+        "mipmap-mdpi": 48,
+        "mipmap-hdpi": 72,
+        "mipmap-xhdpi": 96,
+        "mipmap-xxhdpi": 144,
+        "mipmap-xxxhdpi": 192,
     }
 
-    # Generate nice modern CurioSphere app icon (purple gradient with globe & graduation cap)
-    for folder, (w, h) in densities.items():
+    # Generate exact original logo launcher icons
+    for folder, size in densities.items():
         folder_path = res_dir / folder
         folder_path.mkdir(parents=True, exist_ok=True)
-        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
         
-        # Rounded squircle
-        padding = max(2, int(w * 0.05))
-        draw.rounded_rectangle(
-            [(padding, padding), (w - padding, h - padding)],
-            radius=int(w * 0.22),
-            fill=(74, 17, 223, 255),
-            outline=(143, 62, 255, 255),
-            width=max(1, int(w * 0.03))
-        )
-        
-        # Inner sphere circle
-        cx, cy = w // 2, h // 2
-        r = int(w * 0.28)
-        draw.ellipse(
-            [(cx - r, cy - r), (cx + r, cy + r)],
-            fill=(149, 68, 251, 230),
-            outline=(255, 255, 255, 240),
-            width=max(1, int(w * 0.04))
-        )
-        
-        # Center "C" letter
-        draw.arc(
-            [(cx - int(r*0.65), cy - int(r*0.65)), (cx + int(r*0.65), cy + int(r*0.65))],
-            start=45, end=315,
-            fill=(255, 255, 255, 255),
-            width=max(2, int(w * 0.08))
-        )
+        resized = orig.resize((size, size), Image.Resampling.LANCZOS)
+        resized.save(folder_path / "ic_launcher.png", "PNG")
 
-        img.save(folder_path / "ic_launcher.png", "PNG")
-        img.save(folder_path / "ic_launcher_round.png", "PNG")
+        # Round icon with circular crop
+        round_img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        mask = Image.new("L", (size, size), 0)
+        draw = ImageDraw.Draw(mask)
+        draw.ellipse([(0, 0), (size, size)], fill=255)
+        round_img.paste(resized, (0, 0), mask=mask)
+        round_img.save(folder_path / "ic_launcher_round.png", "PNG")
 
-    log("Generated Android launcher icons.")
+    log("Generated Android launcher icons from original curiosphere-logo.svg.")
 
 def main():
     ensure_tools()
@@ -121,8 +108,8 @@ def main():
     manifest_file.write_text("""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.curiosphere.app"
-    android:versionCode="1"
-    android:versionName="1.0.0">
+    android:versionCode="2"
+    android:versionName="1.0.1">
 
     <uses-sdk
         android:minSdkVersion="24"
@@ -175,6 +162,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.KeyEvent;
 import android.view.View;
+import android.webkit.CookieManager;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -193,7 +181,8 @@ public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 101;
     private long backPressedTime = 0;
 
-    private static final String APP_URL = "https://curiosphere-xi.vercel.app";
+    // Production working URL without Vercel SSO protection
+    private static final String APP_URL = "https://curiosphere-vv.vercel.app";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -236,13 +225,22 @@ public class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
         settings.setSupportZoom(false);
         settings.setDisplayZoomControls(false);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+        // Cookies support for Clerk auth
+        CookieManager cookieManager = CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(webView, true);
+        }
 
         String defaultUa = settings.getUserAgentString();
-        settings.setUserAgentString(defaultUa + " CurioSphereMobileApp/1.0.0");
+        settings.setUserAgentString(defaultUa + " CurioSphereMobileApp/1.0.1");
 
         webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
         webView.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
@@ -339,6 +337,13 @@ public class MainActivity extends Activity {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
             String url = request.getUrl().toString();
+            
+            // Prevent Vercel SSO intercept
+            if (url.contains("vercel.com/sso") || url.contains("curiosphere-xi.vercel.app")) {
+                view.loadUrl(APP_URL);
+                return true;
+            }
+
             if (url.startsWith("tel:") || url.startsWith("mailto:") || url.startsWith("whatsapp:")) {
                 try {
                     Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
@@ -351,7 +356,12 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPageStarted(WebView view, String url, Bitmap favicon) {
-            activity.updateProgress(10);
+            if (url.contains("vercel.com/sso") || url.contains("curiosphere-xi.vercel.app")) {
+                view.stopLoading();
+                view.loadUrl(APP_URL);
+                return;
+            }
+            activity.updateProgress(15);
         }
 
         @Override

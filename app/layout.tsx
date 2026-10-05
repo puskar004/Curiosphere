@@ -53,7 +53,7 @@ export const metadata: Metadata = {
     type: "website",
   },
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL || "https://curiosphere-xi.vercel.app"
+    process.env.NEXT_PUBLIC_APP_URL || "https://curiosphere-vv.vercel.app"
   ),
 };
 
