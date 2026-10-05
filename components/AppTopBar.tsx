@@ -18,7 +18,6 @@ import {
 } from "@/lib/notifications";
 import { displayName } from "@/lib/display-name";
 import { getTabSwitchCount } from "@/components/FocusLock";
-import { ThemeToggle } from "@/components/ThemeProvider";
 import { InstallPwaPrompt } from "@/components/InstallPwaPrompt";
 
 export default function AppTopBar() {
@@ -249,9 +248,6 @@ export default function AppTopBar() {
               TEACHER
             </div>
           )}
-
-          {/* Theme Toggle (Light / Dark) */}
-          <ThemeToggle />
 
           {/* Install Mobile PWA App Button */}
           <InstallPwaPrompt compact />

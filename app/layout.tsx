@@ -2,7 +2,6 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AppShell from "@/components/AppShell";
-import { ThemeProvider } from "@/components/ThemeProvider";
 import { smartLearnAppearance } from "@/lib/clerk-appearance";
 import "./globals.css";
 
@@ -13,7 +12,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f4f6ff" },
-    { media: "(prefers-color-scheme: dark)", color: "#090d16" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f172a" },
   ],
 };
 
@@ -64,53 +63,46 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning className="dark" data-theme="dark">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('sl_theme')||'dark';if(t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');document.documentElement.dataset.theme='dark';}else{document.documentElement.classList.remove('dark');document.documentElement.dataset.theme='light';}}catch(e){}})()`,
-          }}
-        />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
       <body
         suppressHydrationWarning
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-50 text-slate-900`}
       >
-        <ThemeProvider>
-          <ClerkProvider
-            appearance={smartLearnAppearance}
-            localization={{
-              formButtonPrimary: "Continue with CurioSphere",
-              formFieldInputPlaceholder__emailAddress: "you@email.com",
-              signIn: {
-                start: {
-                  title: "Sign in to CurioSphere",
-                  subtitle: "We'll email a CurioSphere OTP to verify it's you",
-                },
-                emailCode: {
-                  title: "Check your email",
-                  subtitle: "Enter the CurioSphere verification code we sent you",
-                },
+        <ClerkProvider
+          appearance={smartLearnAppearance}
+          localization={{
+            formButtonPrimary: "Continue with CurioSphere",
+            formFieldInputPlaceholder__emailAddress: "you@email.com",
+            signIn: {
+              start: {
+                title: "Sign in to CurioSphere",
+                subtitle: "We'll email a CurioSphere OTP to verify it's you",
               },
-              signUp: {
-                start: {
-                  title: "Join CurioSphere",
-                  subtitle: "Create your account — OTP comes from CurioSphere",
-                },
-                emailCode: {
-                  title: "Verify with CurioSphere OTP",
-                  subtitle: "Enter the code from your CurioSphere email",
-                },
+              emailCode: {
+                title: "Check your email",
+                subtitle: "Enter the CurioSphere verification code we sent you",
               },
-            } as never}
-          >
-            <AppShell>{children}</AppShell>
-          </ClerkProvider>
-        </ThemeProvider>
+            },
+            signUp: {
+              start: {
+                title: "Join CurioSphere",
+                subtitle: "Create your account — OTP comes from CurioSphere",
+              },
+              emailCode: {
+                title: "Verify with CurioSphere OTP",
+                subtitle: "Enter the code from your CurioSphere email",
+              },
+            },
+          } as never}
+        >
+          <AppShell>{children}</AppShell>
+        </ClerkProvider>
       </body>
     </html>
   );

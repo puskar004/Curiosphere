@@ -30,7 +30,6 @@ import {
 import { cn } from "@/lib/utils";
 import { getJoinedClass, getRole, setRole } from "@/lib/teacher-store";
 import { ROLE_EVENT, emitRoleChanged } from "@/lib/role-events";
-import { ThemeToggle } from "@/components/ThemeProvider";
 
 const studentNav = [
   { href: "/dashboard", label: "Home", icon: Home },
@@ -276,8 +275,6 @@ export default function AppSidebar() {
             </Link>
           );
         })}
-        <ThemeToggle className="w-full justify-start" showLabel={showLabels} />
-
         {userId && (
           <div
             className={cn(

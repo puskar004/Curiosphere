@@ -20,7 +20,6 @@ import {
 } from "@/lib/user-store";
 import { getJoinedClass, getRole, setRole } from "@/lib/teacher-store";
 import { emitRoleChanged } from "@/lib/role-events";
-import { ThemeToggle } from "@/components/ThemeProvider";
 import { InstallPwaPrompt } from "@/components/InstallPwaPrompt";
 
 export default function ProfilePage() {
@@ -256,16 +255,6 @@ export default function ProfilePage() {
           {classMsg && (
             <p className="mt-2 text-xs text-slate-600">{classMsg}</p>
           )}
-        </div>
-
-        {/* Appearance / Theme Mode */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-          <div>
-            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Theme & Contrast</div>
-            <div className="mt-0.5 text-sm font-bold text-slate-800">Interface Mode</div>
-            <p className="text-[11px] text-slate-500">Switch between High-Contrast Dark Theme and Light Theme</p>
-          </div>
-          <ThemeToggle showLabel />
         </div>
 
         {/* Mobile App Download */}
