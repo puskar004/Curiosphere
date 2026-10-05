@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import NavAuth from "@/components/NavAuth";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/ThemeProvider";
+import { InstallPwaPrompt } from "@/components/InstallPwaPrompt";
 
 const ncertMenu = [
   { href: "/ncert", label: "NCERT Books & Chapters" },
@@ -149,6 +151,8 @@ export default function SiteHeader() {
         </nav>
 
         <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <InstallPwaPrompt compact />
           <Link
             href="/login"
             className={cn(

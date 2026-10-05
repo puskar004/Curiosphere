@@ -18,6 +18,8 @@ import {
 } from "@/lib/notifications";
 import { displayName } from "@/lib/display-name";
 import { getTabSwitchCount } from "@/components/FocusLock";
+import { ThemeToggle } from "@/components/ThemeProvider";
+import { InstallPwaPrompt } from "@/components/InstallPwaPrompt";
 
 export default function AppTopBar() {
   const { userId } = useAuth();
@@ -247,6 +249,12 @@ export default function AppTopBar() {
               TEACHER
             </div>
           )}
+
+          {/* Theme Toggle (Light / Dark) */}
+          <ThemeToggle />
+
+          {/* Install Mobile PWA App Button */}
+          <InstallPwaPrompt compact />
 
           <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             {user && (

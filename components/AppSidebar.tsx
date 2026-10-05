@@ -30,6 +30,7 @@ import {
 import { cn } from "@/lib/utils";
 import { getJoinedClass, getRole, setRole } from "@/lib/teacher-store";
 import { ROLE_EVENT, emitRoleChanged } from "@/lib/role-events";
+import { ThemeToggle } from "@/components/ThemeProvider";
 
 const studentNav = [
   { href: "/dashboard", label: "Home", icon: Home },
@@ -52,12 +53,14 @@ const studentNav = [
 
 const teacherNav = [
   { href: "/teacher", label: "Teacher Home", icon: Home },
+  { href: "/teacher?tab=coding", label: "College Lab Gating", icon: Terminal },
   { href: "/teacher?tab=students", label: "My Students", icon: Users },
   { href: "/teacher?tab=chapters", label: "Chapter Deadlines", icon: CalendarCheck },
   { href: "/teacher/test", label: "Live Tests", icon: ClipboardList },
   { href: "/teacher?tab=materials", label: "Upload Notes/Videos", icon: Upload },
   { href: "/teacher?tab=live", label: "Live Sessions", icon: Radio },
   { href: "/teacher?tab=attendance", label: "Attendance", icon: ClipboardList },
+  { href: "/common-room", label: "Batch Doubt Wall", icon: MessageSquare },
   { href: "/teacher?tab=code", label: "Class Code", icon: GraduationCap },
 ];
 
@@ -273,6 +276,8 @@ export default function AppSidebar() {
             </Link>
           );
         })}
+        <ThemeToggle className="w-full justify-start" showLabel={showLabels} />
+
         {userId && (
           <div
             className={cn(

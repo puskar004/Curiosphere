@@ -81,7 +81,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       className={cn(
-        "min-h-screen bg-[#f4f6ff] text-slate-900",
+        "min-h-screen bg-[#f4f6ff] dark:bg-[#090d16] text-slate-900 dark:text-slate-100",
         "sl-responsive-shell",
         hideChrome && "sl-exam-mode"
       )}

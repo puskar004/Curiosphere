@@ -1,0 +1,27 @@
+{
+  "name": "CurioSphere - College & CBSE Learning Platform",
+  "short_name": "CurioSphere",
+  "description": "College Coding Labs, CBSE NCERT Library, Live Classes, Doubt Wall & AI Mentor",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en",
+  "icons": [
+    {
+      "src": "/curiosphere-logo.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/curiosphere-logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["education", "productivity"]
+}

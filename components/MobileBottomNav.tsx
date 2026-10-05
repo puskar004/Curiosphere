@@ -6,29 +6,30 @@ import {
   BookOpen,
   Brain,
   Home,
-  Link2,
-  MoreHorizontal,
+  MessageSquare,
   Radio,
   Target,
+  Terminal,
+  User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const studentTabs = [
   { href: "/dashboard", label: "Home", icon: Home },
+  { href: "/code", label: "Labs", icon: Terminal },
   { href: "/ncert", label: "NCERT", icon: BookOpen },
-  { href: "/quiz", label: "Quiz", icon: Target },
-  { href: "/ai-tutor", label: "Tutor", icon: Brain },
-  { href: "/join-class", label: "Class", icon: Link2 },
   { href: "/live-class", label: "Live", icon: Radio },
+  { href: "/common-room", label: "Chats", icon: MessageSquare },
+  { href: "/ai-tutor", label: "Tutor", icon: Brain },
 ];
 
 const teacherTabs = [
-  { href: "/teacher", label: "Home", icon: Home },
-  { href: "/teacher?tab=materials", label: "Notes", icon: BookOpen },
-  { href: "/teacher/test", label: "Tests", icon: Target },
+  { href: "/teacher", label: "Hub", icon: Home },
+  { href: "/teacher?tab=coding", label: "Labs", icon: Terminal },
   { href: "/teacher?tab=live", label: "Live", icon: Radio },
-  { href: "/teacher?tab=students", label: "Students", icon: Link2 },
-  { href: "/profile", label: "More", icon: MoreHorizontal },
+  { href: "/teacher/test", label: "Tests", icon: Target },
+  { href: "/common-room", label: "Chats", icon: MessageSquare },
+  { href: "/profile", label: "Profile", icon: User },
 ];
 
 export default function MobileBottomNav({

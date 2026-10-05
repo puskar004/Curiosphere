@@ -2,6 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AppShell from "@/components/AppShell";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import { smartLearnAppearance } from "@/lib/clerk-appearance";
 import "./globals.css";
 
@@ -12,7 +13,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f4f6ff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0f172a" },
+    { media: "(prefers-color-scheme: dark)", color: "#090d16" },
   ],
 };
 
@@ -34,6 +35,12 @@ export const metadata: Metadata = {
   description:
     "Class 10–12 CBSE mastery with NCERT PDFs, PYQs, Gemini tutor, safe YouTube, and focus tools.",
   applicationName: "CurioSphere",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "CurioSphere",
+  },
   authors: [{ name: "CurioSphere" }],
   keywords: ["CurioSphere", "NCERT", "CBSE", "Class 10", "Class 12", "study"],
   icons: {
@@ -57,40 +64,53 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className="dark" data-theme="dark">
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('sl_theme')||'dark';if(t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');document.documentElement.dataset.theme='dark';}else{document.documentElement.classList.remove('dark');document.documentElement.dataset.theme='light';}}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body
         suppressHydrationWarning
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-50 text-slate-900`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ClerkProvider
-          appearance={smartLearnAppearance}
-          localization={{
-            formButtonPrimary: "Continue with CurioSphere",
-            formFieldInputPlaceholder__emailAddress: "you@email.com",
-            signIn: {
-              start: {
-                title: "Sign in to CurioSphere",
-                subtitle: "We'll email a CurioSphere OTP to verify it's you",
+        <ThemeProvider>
+          <ClerkProvider
+            appearance={smartLearnAppearance}
+            localization={{
+              formButtonPrimary: "Continue with CurioSphere",
+              formFieldInputPlaceholder__emailAddress: "you@email.com",
+              signIn: {
+                start: {
+                  title: "Sign in to CurioSphere",
+                  subtitle: "We'll email a CurioSphere OTP to verify it's you",
+                },
+                emailCode: {
+                  title: "Check your email",
+                  subtitle: "Enter the CurioSphere verification code we sent you",
+                },
               },
-              emailCode: {
-                title: "Check your email",
-                subtitle: "Enter the CurioSphere verification code we sent you",
+              signUp: {
+                start: {
+                  title: "Join CurioSphere",
+                  subtitle: "Create your account — OTP comes from CurioSphere",
+                },
+                emailCode: {
+                  title: "Verify with CurioSphere OTP",
+                  subtitle: "Enter the code from your CurioSphere email",
+                },
               },
-            },
-            signUp: {
-              start: {
-                title: "Join CurioSphere",
-                subtitle: "Create your account — OTP comes from CurioSphere",
-              },
-              emailCode: {
-                title: "Verify with CurioSphere OTP",
-                subtitle: "Enter the code from your CurioSphere email",
-              },
-            },
-          } as never}
-        >
-          <AppShell>{children}</AppShell>
-        </ClerkProvider>
+            } as never}
+          >
+            <AppShell>{children}</AppShell>
+          </ClerkProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
