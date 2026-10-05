@@ -26,6 +26,7 @@ import {
   GitBranch,
   Terminal,
   CalendarCheck,
+  Smartphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getJoinedClass, getRole, setRole } from "@/lib/teacher-store";
@@ -64,11 +65,13 @@ const teacherNav = [
 ];
 
 const bottomStudent = [
+  { href: "/api/download-apk", label: "Download APK", icon: Smartphone },
   { href: "/profile", label: "Settings", icon: Settings },
   { href: "/support", label: "Help & Support", icon: HelpCircle },
 ];
 
 const bottomTeacher = [
+  { href: "/api/download-apk", label: "Download APK", icon: Smartphone },
   { href: "/profile", label: "Settings", icon: Settings },
 ];
 

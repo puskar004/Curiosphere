@@ -52,3 +52,5 @@ next-env.d.ts
 # local material/test data
 .data/
 .opencode/
+.android-temp/
+

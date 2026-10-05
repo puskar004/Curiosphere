@@ -36,6 +36,7 @@ import {
   type ChapterAssignment,
 } from "@/lib/teacher-store";
 import { emitRoleChanged } from "@/lib/role-events";
+import { InstallPwaPrompt } from "@/components/InstallPwaPrompt";
 
 const tiles = [
   {
@@ -356,7 +357,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-
+      {/* Mobile App & APK Banner */}
+      <InstallPwaPrompt className="mt-4" />
 
       {/* Stats row */}
       {isSignedIn && p && (

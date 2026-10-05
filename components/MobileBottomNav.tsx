@@ -65,7 +65,7 @@ export default function MobileBottomNav({
               <Link
                 href={t.href}
                 className={cn(
-                  "flex flex-col items-center gap-0.5 rounded-xl px-0.5 py-1.5 text-[9px] font-bold leading-tight transition",
+                  "flex flex-col items-center gap-0.5 rounded-xl px-0.5 py-1.5 text-[9.5px] font-bold leading-tight transition active:scale-95 touch-manipulation select-none",
                   active
                     ? isTeacher
                       ? "text-indigo-700"
@@ -78,8 +78,8 @@ export default function MobileBottomNav({
                     "flex h-8 w-8 items-center justify-center rounded-xl transition",
                     active
                       ? isTeacher
-                        ? "bg-indigo-100"
-                        : "bg-violet-100"
+                        ? "bg-indigo-100 shadow-sm"
+                        : "bg-violet-100 shadow-sm"
                       : "bg-transparent"
                   )}
                 >
