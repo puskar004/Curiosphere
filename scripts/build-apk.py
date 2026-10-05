@@ -207,6 +207,8 @@ public class MainActivity extends Activity {
         );
         progressBar.setLayoutParams(pbParams);
         progressBar.setMax(100);
+        progressBar.setFocusable(false);
+        progressBar.setClickable(false);
 
         root.addView(webView);
         root.addView(progressBar);
@@ -227,7 +229,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setUseWideViewPort(true);
-        settings.setLoadWithOverviewMode(true);
+        settings.setLoadWithOverviewMode(false);
         settings.setSupportZoom(false);
         settings.setDisplayZoomControls(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
@@ -242,8 +244,13 @@ public class MainActivity extends Activity {
         String defaultUa = settings.getUserAgentString();
         settings.setUserAgentString(defaultUa + " CurioSphereMobileApp/1.0.1");
 
+        webView.setVerticalScrollBarEnabled(true);
+        webView.setHorizontalScrollBarEnabled(false);
         webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
         webView.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        webView.requestFocus();
 
         webView.setWebChromeClient(new AppChromeClient(this));
         webView.setWebViewClient(new AppWebClient(this));

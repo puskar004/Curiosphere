@@ -109,7 +109,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </>
       ) : (
         <RoleGate>
-          <div className="min-h-dvh w-full max-w-[100vw] overflow-x-clip">
+          <div className="min-h-dvh w-full max-w-full overflow-x-clip">
             {!isTeacher && !onTest && <StudentSync />}
             {!hideChrome && <AppSidebar />}
             <div
