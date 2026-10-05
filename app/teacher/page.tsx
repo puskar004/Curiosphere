@@ -33,6 +33,7 @@ import MeetFrame from "@/components/MeetFrame";
 import PdfReaderModal from "@/components/PdfReaderModal";
 import { CURRICULUM } from "@/lib/curriculum";
 import { CODING_CURRICULUM } from "@/lib/coding-curriculum";
+import { LAB_COURSES, type LabCourse, type LabLecture } from "@/lib/lab-curriculum";
 import type {
   CodingProblem,
   Difficulty,
@@ -147,6 +148,10 @@ function TeacherInner() {
   const [assignBusy, setAssignBusy] = useState(false);
   const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
   const [editDeadlineDate, setEditDeadlineDate] = useState<string>("");
+
+  // College Practical Lab unlocking controls
+  const [labControlTrack, setLabControlTrack] = useState<"cpp" | "c" | "python" | "dsa">("cpp");
+  const [labUnlockBusy, setLabUnlockBusy] = useState(false);
 
   // Coding challenge manager state (CodeTantra style)
   const [codingTrack, setCodingTrack] = useState<TrackId>("all");
@@ -495,6 +500,102 @@ function TeacherInner() {
       setCodingSuccess(`Deleted question "${title}".`);
     } catch (err) {
       quietError(err instanceof Error ? err.message : "Failed to delete question");
+    }
+  };
+
+  const handleToggleLabExperiment = async (labCourse: LabCourse, lecture: LabLecture) => {
+    if (!room) {
+      quietError("Please select a classroom first.");
+      return;
+    }
+    setLabUnlockBusy(true);
+    const isUnlocked = (room.chapterAssignments || []).some(
+      (a) => a.chapterId === lecture.id
+    );
+
+    try {
+      if (isUnlocked) {
+        await apiRemoveChapterAssignment(room.code, lecture.id);
+        const updated = (room.chapterAssignments || []).filter(
+          (a) => a.chapterId !== lecture.id
+        );
+        const nextRoom = { ...room, chapterAssignments: updated };
+        setRoom(nextRoom);
+        persistClasses(classes.map((c) => (c.code === room.code ? nextRoom : c)));
+        setCodingSuccess(`Locked Experiment: "${lecture.title}" for ${room.name}.`);
+      } else {
+        const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split("T")[0];
+        const res = await apiAssignChapter(room.code, {
+          grade: "12",
+          subjectId: labCourse.id,
+          subjectName: labCourse.name,
+          chapterId: lecture.id,
+          chapterNumber: lecture.lectureNumber,
+          chapterTitle: lecture.title,
+          deadline: nextWeek,
+          note: `Practical Lab Experiment (${labCourse.code})`,
+        });
+        const newAssignment = res.assignment || {
+          id: `asg-${Date.now()}`,
+          subjectId: labCourse.id,
+          subjectName: labCourse.name,
+          chapterId: lecture.id,
+          chapterNumber: lecture.lectureNumber,
+          chapterTitle: lecture.title,
+          grade: "12",
+          deadline: nextWeek,
+          note: `Practical Lab Experiment (${labCourse.code})`,
+          createdAt: new Date().toISOString(),
+        };
+        const updated = [
+          ...(room.chapterAssignments || []).filter((a) => a.chapterId !== lecture.id),
+          newAssignment,
+        ];
+        const nextRoom = { ...room, chapterAssignments: updated };
+        setRoom(nextRoom);
+        persistClasses(classes.map((c) => (c.code === room.code ? nextRoom : c)));
+        setCodingSuccess(`Unlocked Experiment: "${lecture.title}" for ${room.name}! Students can now view & code this experiment.`);
+      }
+    } catch (e) {
+      quietError(e instanceof Error ? e.message : "Failed to update experiment status");
+    } finally {
+      setLabUnlockBusy(false);
+    }
+  };
+
+  const handleUnlockAllInTrack = async (labCourse: LabCourse) => {
+    if (!room) {
+      quietError("Please select a classroom first.");
+      return;
+    }
+    setLabUnlockBusy(true);
+    const nextWeek = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
+    try {
+      for (const lecture of labCourse.lectures) {
+        const already = (room.chapterAssignments || []).some((a) => a.chapterId === lecture.id);
+        if (!already) {
+          await apiAssignChapter(room.code, {
+            grade: "12",
+            subjectId: labCourse.id,
+            subjectName: labCourse.name,
+            chapterId: lecture.id,
+            chapterNumber: lecture.lectureNumber,
+            chapterTitle: lecture.title,
+            deadline: nextWeek,
+            note: `Practical Lab Experiment (${labCourse.code})`,
+          });
+        }
+      }
+      await refresh(true);
+      setCodingSuccess(`Successfully unlocked all ${labCourse.lectures.length} experiments in ${labCourse.name} for ${room.name}!`);
+    } catch {
+      quietError("Failed to unlock all experiments");
+    } finally {
+      setLabUnlockBusy(false);
     }
   };
 
@@ -1989,6 +2090,175 @@ function TeacherInner() {
                     </button>
                   </div>
                 )}
+
+                {/* College Lab Experiments Access Control */}
+                <div className="rounded-3xl border border-indigo-200/80 bg-gradient-to-br from-indigo-950 via-slate-900 to-slate-950 p-6 text-white shadow-xl relative overflow-hidden">
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-b border-indigo-900/60 pb-5">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 font-mono text-sm font-black">
+                          🏛️
+                        </span>
+                        <div>
+                          <h2 className="text-base font-black tracking-tight text-white flex items-center gap-2">
+                            College Practical Labs — Student Access & Gating Control
+                            {room && (
+                              <span className="rounded-full bg-indigo-500/20 px-2.5 py-0.5 text-[11px] font-bold text-indigo-300 border border-indigo-500/30">
+                                Batch: {room.name} ({room.code})
+                              </span>
+                            )}
+                          </h2>
+                          <p className="mt-0.5 text-xs text-indigo-200/70">
+                            Control which practical coding experiments are unlocked for your college students. Locked experiments remain hidden/gated on students&apos; portals until unlocked here.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {room && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={labUnlockBusy}
+                          onClick={() => handleUnlockAllInTrack(LAB_COURSES[labControlTrack])}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600/80 hover:bg-indigo-600 border border-indigo-400/40 px-3.5 py-2 text-xs font-bold text-white transition disabled:opacity-50"
+                        >
+                          {labUnlockBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlock className="h-3.5 w-3.5" />}
+                          Unlock All in {LAB_COURSES[labControlTrack].shortTitle}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {!room ? (
+                    <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-xs text-indigo-200">
+                      Please select a classroom from the top bar to manage experiment unlock permissions for that batch.
+                    </div>
+                  ) : (
+                    <>
+                      {/* Course Track Selectors */}
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {(
+                          [
+                            ["cpp", "C++ OOP Lab", "🚀", "CS202"],
+                            ["c", "C Programming Lab", "⚡", "CS101"],
+                            ["python", "Python Programming Lab", "🐍", "CS103"],
+                            ["dsa", "Data Structures Lab", "🧠", "CS205"],
+                          ] as const
+                        ).map(([trackId, label, icon, code]) => {
+                          const course = LAB_COURSES[trackId];
+                          const unlockedCount = course.lectures.filter((l) =>
+                            (room.chapterAssignments || []).some((a) => a.chapterId === l.id)
+                          ).length;
+                          const isSelected = labControlTrack === trackId;
+
+                          return (
+                            <button
+                              key={trackId}
+                              type="button"
+                              onClick={() => setLabControlTrack(trackId)}
+                              className={cn(
+                                "flex items-center gap-2 rounded-2xl px-3.5 py-2 text-xs font-bold transition border",
+                                isSelected
+                                  ? "bg-indigo-600 text-white border-indigo-400/50 shadow-md shadow-indigo-600/30"
+                                  : "bg-white/5 text-slate-300 border-white/10 hover:bg-white/10"
+                              )}
+                            >
+                              <span>{icon}</span>
+                              <span>{label}</span>
+                              <span className="rounded-full bg-black/30 px-2 py-0.5 text-[10px] text-indigo-200">
+                                {unlockedCount}/{course.lectures.length} Unlocked
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Selected Course's Experiments Grid */}
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        {LAB_COURSES[labControlTrack].lectures.map((lec) => {
+                          const isUnlocked = (room.chapterAssignments || []).some(
+                            (a) => a.chapterId === lec.id
+                          );
+                          return (
+                            <div
+                              key={lec.id}
+                              className={cn(
+                                "rounded-2xl border p-4 transition",
+                                isUnlocked
+                                  ? "border-emerald-500/40 bg-emerald-950/20"
+                                  : "border-white/10 bg-white/5"
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="rounded-md bg-white/10 px-2 py-0.5 font-mono text-[10px] font-bold text-slate-300">
+                                      Unit {lec.unitNumber} · Exp #{lec.lectureNumber}
+                                    </span>
+                                    {isUnlocked ? (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
+                                        <CheckCircle2 className="h-3 w-3" /> Unlocked (Live)
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/20 px-2 py-0.5 text-[10px] font-bold text-slate-400 border border-white/10">
+                                        <Lock className="h-3 w-3" /> Locked (Hidden)
+                                      </span>
+                                    )}
+                                  </div>
+                                  <h4 className="mt-1.5 text-xs font-bold text-white line-clamp-1">
+                                    {lec.title}
+                                  </h4>
+                                  <p className="mt-0.5 text-[11px] text-slate-400 line-clamp-2">
+                                    {lec.description}
+                                  </p>
+                                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+                                    <span>⚡ {lec.codingProblem.testCases.length} Test Cases</span>
+                                    <span>• {lec.codingProblem.difficulty.toUpperCase()}</span>
+                                    <span>• {lec.note.readTime} Theory</span>
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-col items-end gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={labUnlockBusy}
+                                    onClick={() => handleToggleLabExperiment(LAB_COURSES[labControlTrack], lec)}
+                                    className={cn(
+                                      "inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition",
+                                      isUnlocked
+                                        ? "bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30"
+                                        : "bg-emerald-600 text-white hover:bg-emerald-500 shadow-sm"
+                                    )}
+                                  >
+                                    {isUnlocked ? (
+                                      <>
+                                        <Lock className="h-3.5 w-3.5" />
+                                        Lock Task
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Unlock className="h-3.5 w-3.5" />
+                                        Unlock for Class
+                                      </>
+                                    )}
+                                  </button>
+                                  <Link
+                                    href={`/code?lab=${labControlTrack}&lec=${lec.id}`}
+                                    target="_blank"
+                                    className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
+                                  >
+                                    <ExternalLink className="h-3 w-3" /> Preview in Lab
+                                  </Link>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Top Coding Hub Header */}
                 <div className="rounded-3xl border border-indigo-100 bg-white p-6 shadow-sm">

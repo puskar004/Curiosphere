@@ -64,12 +64,12 @@ export const CLEAN_LAB_STARTER_CODE: Record<LanguageId, string> = {
 using namespace std;
 
 int main() {
-    // Write your code here
+    // Write your solution here
     
     return 0;
 }
 `,
-  python: `# Write your code here
+  python: `# Write your solution here
 import sys
 
 def main():
@@ -81,7 +81,7 @@ if __name__ == "__main__":
   c: `#include <stdio.h>
 
 int main() {
-    // Write your code here
+    // Write your solution here
     
     return 0;
 }
@@ -90,7 +90,7 @@ int main() {
 
 export const LAB_COURSES: Record<"c" | "cpp" | "python" | "dsa", LabCourse> = {
   // =========================================================================
-  // 1. C++ OBJECT ORIENTED PROGRAMMING LAB (Matches Screenshot)
+  // 1. C++ OBJECT ORIENTED PROGRAMMING LAB (CS202)
   // =========================================================================
   cpp: {
     id: "cpp",
@@ -110,42 +110,20 @@ export const LAB_COURSES: Record<"c" | "cpp" | "python" | "dsa", LabCourse> = {
         lectureNumber: 1,
         unitNumber: 1,
         title: "Classes, Objects & Member Functions",
-        description: "Understanding encapsulation, class definition, public/private access specifiers, and member function definition.",
+        description: "Understanding encapsulation, class definition, access specifiers, and member function implementation.",
         note: {
           id: "cpp-lec1-note",
           title: "Introduction to Classes and Objects in C++",
           readTime: "04:30",
-          content: `### 1. Introduction to Classes & Objects
-A class in C++ is a user-defined blueprint or prototype from which objects are created. It encapsulates data members (variables) and member functions (methods) into a single logical unit.
-
-\`\`\`cpp
-#include <iostream>
-using namespace std;
-
-class Student {
-private:
-    int rollNumber;
-    string name;
-
-public:
-    void setData(int r, string n) {
-        rollNumber = r;
-        name = n;
-    }
-    void display() {
-        cout << "Roll: " << rollNumber << ", Name: " << name << endl;
-    }
-};
-\`\`\`
-
-### 2. Access Specifiers
-- **private**: Data members and functions can only be accessed within the class.
-- **public**: Members are accessible from anywhere outside the class.
-- **protected**: Members are accessible within the class and its derived (child) classes.`,
+          content: `### 1. Classes & Objects in C++
+A class is a blueprint binding data members and member functions into a single unit. Objects are runtime instances of classes.
+Access specifiers:
+- **private**: Accessible only inside the class.
+- **public**: Accessible from outside the class.
+- **protected**: Accessible in derived classes.`,
           keyPoints: [
-            "Encapsulation binds data and functions together, preventing unauthorized direct access.",
-            "By default, all members in a C++ `class` are private (unlike a `struct` where members default to public).",
-            "Member functions can be defined inside the class or outside using the scope resolution operator `::`.",
+            "Encapsulation protects data integrity by restricting direct external access.",
+            "Default member access in C++ `class` is private (unlike `struct`).",
           ],
         },
         mcqs: [
@@ -154,47 +132,28 @@ public:
             question: "What is the default access specifier for members of a C++ class?",
             options: ["public", "protected", "private", "internal"],
             correctIndex: 2,
-            explanation: "In C++, members of a class are private by default, whereas in a struct they are public by default.",
+            explanation: "Members of a class default to private in C++.",
           },
           {
             id: "cpp-l1-q2",
-            question: "Which operator is used to define a member function outside the class definition?",
-            options: [": (Single colon)", ":: (Scope resolution operator)", "-> (Arrow operator)", ". (Dot operator)"],
+            question: "Which operator defines a member function outside the class definition?",
+            options: [": (Colon)", ":: (Scope resolution operator)", "-> (Arrow)", ". (Dot)"],
             correctIndex: 1,
-            explanation: "The scope resolution operator `::` qualifies the function name with its enclosing class scope.",
-          },
-          {
-            id: "cpp-l1-q3",
-            question: "What will the following code output?",
-            codeSnippet: `#include <iostream>
-using namespace std;
-class Box {
-    int val = 10;
-public:
-    void print() { cout << val; }
-};
-int main() {
-    Box b;
-    b.print();
-    return 0;
-}`,
-            options: ["Compilation Error", "10", "Garbage value", "0"],
-            correctIndex: 1,
-            explanation: "In modern C++, in-class member initialization `int val = 10;` is valid and initializes `val` to 10.",
+            explanation: "`::` is the scope resolution operator in C++.",
           },
         ],
         codingProblem: {
           id: "cpp-prob-student-record",
           title: "Student Record Calculator",
           difficulty: "easy",
-          companyTags: ["Infosys DSE", "Capgemini", "CBSE 12"],
-          description: "Create a class `Student` with private members `rollNumber`, `marks1`, `marks2`, and `marks3`. Read the student details from standard input and compute the total marks and average percentage.",
-          inputFormat: "First line contains an integer `rollNumber`.\nSecond line contains three space-separated integers representing `marks1`, `marks2`, and `marks3`.",
-          outputFormat: "Print the total marks and average percentage formatted as `Total: <sum>, Average: <avg>` (average rounded to 2 decimal places).",
+          companyTags: ["Infosys", "Capgemini", "University Exam"],
+          description: "Create a class `Student` with members `rollNumber`, `marks1`, `marks2`, and `marks3`. Read inputs and print total and average marks.",
+          inputFormat: "First line: `rollNumber`\nSecond line: three space-separated integers `marks1 marks2 marks3`.",
+          outputFormat: "Print `Total: <sum>, Average: <avg>` (average rounded to 2 decimals).",
           constraints: "1 <= rollNumber <= 10000\n0 <= marks <= 100",
           sampleInput: "101\n85 90 95",
           sampleOutput: "Total: 270, Average: 90.00",
-          explanation: "Total = 85 + 90 + 95 = 270. Average = 270 / 3 = 90.00.",
+          explanation: "85 + 90 + 95 = 270. Average = 270 / 3 = 90.00.",
           starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
             { id: "cpp-l1-tc1", input: "101\n85 90 95", expectedOutput: "Total: 270, Average: 90.00", isSecret: false },
@@ -208,155 +167,181 @@ int main() {
         lectureNumber: 2,
         unitNumber: 1,
         title: "Constructors, Destructors & Initializer Lists",
-        description: "Default constructors, parameterized constructors, copy constructors, constructor delegation, and deterministic destructors.",
+        description: "Parameterized constructors, copy constructors, constructor delegation, and RAII cleanup.",
         note: {
           id: "cpp-lec2-note",
-          title: "Constructors, Destructors & RAII in C++",
+          title: "Constructors & Resource Management in C++",
           readTime: "05:00",
-          content: `### 1. Constructors in C++
-A constructor is a special member function with the same name as the class that is invoked automatically when an object is instantiated. It has no return type.
-
-\`\`\`cpp
-class Rectangle {
-    int width, height;
-public:
-    // Parameterized constructor with initializer list
-    Rectangle(int w, int h) : width(w), height(h) {}
-    
-    // Destructor
-    ~Rectangle() {
-        // Cleanup code
-    }
-};
-\`\`\`
-
-### 2. Copy Constructor
-Initializes an object using another object of the same class:
-\`\`\`cpp
-Rectangle(const Rectangle &other) : width(other.width), height(other.height) {}
-\`\`\``,
+          content: `### Constructors & Destructors
+Constructors initialize object state on creation. Destructors perform cleanup when the object goes out of scope.`,
           keyPoints: [
-            "Constructors cannot be virtual, but destructors should be declared virtual in polymorphic base classes.",
-            "Member initializer lists (`: member(val)`) initialize members before the constructor body executes.",
-            "RAII (Resource Acquisition Is Initialization) relies on destructors to release memory and resources safely.",
+            "Constructors cannot return values and cannot be virtual.",
+            "Member initializer lists run before the constructor body.",
           ],
         },
         mcqs: [
           {
             id: "cpp-l2-q1",
-            question: "Which constructor is called when an object is declared as: `MyClass obj2 = obj1;`?",
+            question: "Which constructor is invoked by: `MyClass obj2 = obj1;`?",
             options: ["Default constructor", "Copy constructor", "Move constructor", "Destructor"],
             correctIndex: 1,
-            explanation: "Initializing a new object with an existing object of the same class invokes the copy constructor.",
-          },
-          {
-            id: "cpp-l2-q2",
-            question: "Why should a base class destructor be declared as virtual?",
-            options: [
-              "To allow private destructor access",
-              "To ensure the derived class destructor is called when deleting via a base pointer",
-              "To speed up object construction",
-              "Virtual destructors are mandatory for all C++ classes",
-            ],
-            correctIndex: 1,
-            explanation: "Without a virtual base destructor, deleting a derived object via a base pointer causes undefined behavior and resource leaks.",
+            explanation: "Initializing a new object with an existing instance calls the copy constructor.",
           },
         ],
         codingProblem: {
-          id: "cpp-prob-complex-numbers",
-          title: "Complex Number Addition using Constructors",
+          id: "cpp-prob-rect-area",
+          title: "Rectangle Area with Parameterized Constructor",
           difficulty: "easy",
-          description: "Design a class `Complex` with real and imaginary parts. Use parameterized constructors to initialize two complex numbers and write a method `add` that returns their sum in the format `A + Bi`.",
-          inputFormat: "Single line containing four space-separated integers: `r1 i1 r2 i2`.",
-          outputFormat: "Print the resultant complex number in the format `<R> + <I>i` (or `<R> - <I>i` if imaginary part is negative).",
-          constraints: "-1000 <= r1, i1, r2, i2 <= 1000",
-          sampleInput: "3 4 5 6",
-          sampleOutput: "8 + 10i",
-          explanation: "(3 + 4i) + (5 + 6i) = (3+5) + (4+6)i = 8 + 10i.",
+          companyTags: ["Wipro", "TCS"],
+          description: "Define a class `Rectangle` taking `length` and `breadth` in constructor. Calculate and print its area and perimeter.",
+          inputFormat: "Two integers `length` and `breadth` separated by a space.",
+          outputFormat: "Print `Area: <area>, Perimeter: <perimeter>`.",
+          constraints: "1 <= length, breadth <= 10^4",
+          sampleInput: "5 4",
+          sampleOutput: "Area: 20, Perimeter: 18",
+          explanation: "Area = 5 * 4 = 20. Perimeter = 2 * (5 + 4) = 18.",
           starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
-            { id: "cpp-l2-tc1", input: "3 4 5 6", expectedOutput: "8 + 10i", isSecret: false },
-            { id: "cpp-l2-tc2", input: "10 -5 2 3", expectedOutput: "12 - 2i", isSecret: false },
-            { id: "cpp-l2-tc3", input: "-20 -30 15 10", expectedOutput: "-5 - 20i", isSecret: true },
+            { id: "cpp-l2-tc1", input: "5 4", expectedOutput: "Area: 20, Perimeter: 18", isSecret: false },
+            { id: "cpp-l2-tc2", input: "10 10", expectedOutput: "Area: 100, Perimeter: 40", isSecret: false },
+            { id: "cpp-l2-tc3", input: "12 8", expectedOutput: "Area: 96, Perimeter: 40", isSecret: true },
           ],
         },
       },
       {
-        id: "cpp-lec18",
-        lectureNumber: 18,
-        unitNumber: 3,
-        title: "Opening and Closing of Files & Stream Modes",
-        description: "File stream classes (ifstream, ofstream, fstream), opening modes (ios::in, ios::out, ios::app, ios::binary), and error handling.",
+        id: "cpp-lec3",
+        lectureNumber: 3,
+        unitNumber: 2,
+        title: "Operator Overloading: Complex Numbers",
+        description: "Overloading binary operator `+` and `*` to perform arithmetic on user-defined types.",
         note: {
-          id: "cpp-lec18-note",
-          title: "File Handling & Stream Modes in C++",
-          readTime: "03:00",
-          content: `### 1. C++ File Streams Hierarchy
-C++ provides standard classes in \`<fstream>\`:
-- **ifstream**: Input file stream for reading data.
-- **ofstream**: Output file stream for creating and writing data.
-- **fstream**: Input and output stream for simultaneous read/write operations.
-
-\`\`\`cpp
-#include <fstream>
-using namespace std;
-
-int main() {
-    ofstream outFile("data.txt", ios::out | ios::app);
-    if (outFile.is_open()) {
-        outFile << "Appending text to file\\n";
-        outFile.close();
-    }
-    return 0;
-}
-\`\`\`
-
-### 2. Common File Modes
-| Mode Flag | Description |
-| :--- | :--- |
-| \`ios::in\` | Open file for reading |
-| \`ios::out\` | Open file for writing (truncates existing file) |
-| \`ios::app\` | Append data to the end of the file |
-| \`ios::trunc\` | Truncate file if it already exists |
-| \`ios::binary\` | Open in binary mode instead of text mode |`,
+          id: "cpp-lec3-note",
+          title: "Operator Overloading Principles in C++",
+          readTime: "04:30",
+          content: `### Operator Overloading
+Allows existing C++ operators to be redefined for user-defined classes. Cannot invent new operators or alter precedence.`,
           keyPoints: [
-            "Always check `file.is_open()` before reading or writing.",
-            "Closing a stream explicitly with `.close()` flushes internal write buffers.",
-            "Destructors of fstream objects close open files automatically when leaving scope.",
+            "Operators like `::`, `.`, `.*`, and `?:` cannot be overloaded.",
           ],
         },
         mcqs: [
           {
-            id: "cpp-l18-q1",
-            question: "Which file mode flag opens a file and appends content to the end without truncating?",
-            options: ["ios::out", "ios::trunc", "ios::app", "ios::ate"],
-            correctIndex: 2,
-            explanation: "`ios::app` (append mode) ensures all write operations are performed at the end of the file.",
-          },
-          {
-            id: "cpp-l18-q2",
-            question: "Which header file is required to work with C++ file streams (ifstream, ofstream)?",
-            options: ["<iostream>", "<fstream>", "<stdio.h>", "<iomanip>"],
+            id: "cpp-l3-q1",
+            question: "Which of the following operators CANNOT be overloaded in C++?",
+            options: ["+", ":: (Scope resolution)", "==", "[]"],
             correctIndex: 1,
-            explanation: "`#include <fstream>` contains declarations for ifstream, ofstream, and fstream.",
+            explanation: "Scope resolution `::` cannot be overloaded.",
           },
         ],
         codingProblem: {
-          id: "cpp-prob-file-word-counter",
-          title: "Stream Word & Character Counter",
+          id: "cpp-prob-complex-add",
+          title: "Complex Number Addition via Operator Overloading",
           difficulty: "easy",
-          description: "Simulate a file stream processor. Given text from standard input, count the total number of lines, words, and non-whitespace characters.",
-          inputFormat: "Multiline text from standard input until EOF.",
-          outputFormat: "Print `Words: <count>, Characters: <count>`.",
-          constraints: "Total characters <= 10000",
-          sampleInput: "Object Oriented Programming in CPP\nFile streams and memory management",
-          sampleOutput: "Words: 9, Characters: 62",
-          explanation: "There are 9 space-separated words and 62 non-whitespace characters.",
+          companyTags: ["Accenture", "Infosys"],
+          description: "Read real and imaginary parts of two complex numbers. Overload operator `+` to compute their sum.",
+          inputFormat: "Four space-separated integers: `r1 i1 r2 i2`.",
+          outputFormat: "Print the resulting sum formatted as `r+ii` (e.g. `7+5i`).",
+          constraints: "-1000 <= r, i <= 1000",
+          sampleInput: "3 2 4 3",
+          sampleOutput: "7+5i",
+          explanation: "(3+2i) + (4+3i) = 7+5i.",
           starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
-            { id: "cpp-l18-tc1", input: "Object Oriented Programming in CPP\nFile streams and memory management", expectedOutput: "Words: 9, Characters: 62", isSecret: false },
-            { id: "cpp-l18-tc2", input: "Hello World", expectedOutput: "Words: 2, Characters: 10", isSecret: false },
-            { id: "cpp-l18-tc3", input: "Data Structures and Algorithms in C++ STL", expectedOutput: "Words: 7, Characters: 35", isSecret: true },
+            { id: "cpp-l3-tc1", input: "3 2 4 3", expectedOutput: "7+5i", isSecret: false },
+            { id: "cpp-l3-tc2", input: "1 1 2 2", expectedOutput: "3+3i", isSecret: false },
+            { id: "cpp-l3-tc3", input: "10 5 -2 -3", expectedOutput: "8+2i", isSecret: true },
+          ],
+        },
+      },
+      {
+        id: "cpp-lec4",
+        lectureNumber: 4,
+        unitNumber: 3,
+        title: "Inheritance & Polymorphism: Shape Hierarchy",
+        description: "Single, multilevel, hierarchical inheritance and runtime polymorphism using pure virtual functions.",
+        note: {
+          id: "cpp-lec4-note",
+          title: "Inheritance & Virtual Functions in C++",
+          readTime: "05:00",
+          content: `### Polymorphism & Virtual Functions
+Virtual functions enable late/dynamic binding so derived implementations are called via base pointers at runtime.`,
+          keyPoints: [
+            "A class containing at least one pure virtual function (`virtual void f() = 0;`) is abstract.",
+          ],
+        },
+        mcqs: [
+          {
+            id: "cpp-l4-q1",
+            question: "What makes a C++ class abstract?",
+            options: ["Having private members", "Having at least one pure virtual function", "Having a destructor", "Having templates"],
+            correctIndex: 1,
+            explanation: "Pure virtual function `= 0` makes a class abstract.",
+          },
+        ],
+        codingProblem: {
+          id: "cpp-prob-shape-poly",
+          title: "Shape Area Calculator via Polymorphism",
+          difficulty: "medium",
+          companyTags: ["Amazon", "TCS Digital"],
+          description: "Given shape type (1 for Circle with radius r, 2 for Square with side s). Compute and print area as an integer.",
+          inputFormat: "First line: `type` (1 or 2). Second line: dimension `r` or `s`.",
+          outputFormat: "Print the integer area (use pi = 3.14 for circle, truncated to int).",
+          constraints: "1 <= dimension <= 1000",
+          sampleInput: "1\n10",
+          sampleOutput: "314",
+          explanation: "Circle area = 3.14 * 10 * 10 = 314.",
+          starterCode: CLEAN_LAB_STARTER_CODE,
+          testCases: [
+            { id: "cpp-l4-tc1", input: "1\n10", expectedOutput: "314", isSecret: false },
+            { id: "cpp-l4-tc2", input: "2\n5", expectedOutput: "25", isSecret: false },
+            { id: "cpp-l4-tc3", input: "2\n12", expectedOutput: "144", isSecret: true },
+          ],
+        },
+      },
+      {
+        id: "cpp-lec5",
+        lectureNumber: 5,
+        unitNumber: 4,
+        title: "STL Vector & Map Frequency Analysis",
+        description: "Harnessing the C++ Standard Template Library (`std::vector`, `std::map`) for associative lookups.",
+        note: {
+          id: "cpp-lec5-note",
+          title: "C++ STL Containers & Iterators",
+          readTime: "04:00",
+          content: `### STL Containers
+- \`std::vector\`: Dynamic contiguous array with amortized O(1) push_back.
+- \`std::map\`: Balanced Red-Black tree maintaining sorted keys with O(log N) operations.`,
+          keyPoints: [
+            "STL vectors automatically handle resizing.",
+            "std::map keeps keys in ascending order.",
+          ],
+        },
+        mcqs: [
+          {
+            id: "cpp-l5-q1",
+            question: "What is the average time complexity of insertion into a std::map?",
+            options: ["O(1)", "O(log N)", "O(N)", "O(N log N)"],
+            correctIndex: 1,
+            explanation: "std::map is a Red-Black tree with logarithmic O(log N) operations.",
+          },
+        ],
+        codingProblem: {
+          id: "cpp-prob-stl-frequency",
+          title: "Sorted Element Frequency Counter",
+          difficulty: "easy",
+          companyTags: ["Google", "Adobe"],
+          description: "Given N integers, count the frequency of each distinct element and print them in ascending key order.",
+          inputFormat: "First line: `N`\nSecond line: `N` space-separated integers.",
+          outputFormat: "Print each key and frequency in format `key:count` on separate lines.",
+          constraints: "1 <= N <= 10^5",
+          sampleInput: "6\n4 2 4 1 2 4",
+          sampleOutput: "1:1\n2:2\n4:3",
+          explanation: "1 appears 1 time, 2 appears 2 times, 4 appears 3 times.",
+          starterCode: CLEAN_LAB_STARTER_CODE,
+          testCases: [
+            { id: "cpp-l5-tc1", input: "6\n4 2 4 1 2 4", expectedOutput: "1:1\n2:2\n4:3", isSecret: false },
+            { id: "cpp-l5-tc2", input: "3\n10 10 10", expectedOutput: "10:3", isSecret: false },
+            { id: "cpp-l5-tc3", input: "5\n9 3 9 1 3", expectedOutput: "1:1\n3:2\n9:2", isSecret: true },
           ],
         },
       },
@@ -364,7 +349,7 @@ int main() {
   },
 
   // =========================================================================
-  // 2. DATA STRUCTURES & ALGORITHMS LAB (Matches Screenshot)
+  // 2. DATA STRUCTURES & ALGORITHMS LAB (CS205)
   // =========================================================================
   dsa: {
     id: "dsa",
@@ -389,57 +374,27 @@ int main() {
           id: "dsa-lec1-note",
           title: "Two-Pointer Technique & Hash-Based Lookup",
           readTime: "04:00",
-          content: `### Two-Sum Problem Formulation
-Given an array of integers \`nums\` and an integer \`target\`, find the indices of the two numbers such that they add up to \`target\`.
-
-#### Approach 1: Hash Map (O(N) Time, O(N) Space)
-We iterate through the array once. For each element \`x\`, we calculate its complement \`target - x\` and check if it already exists in our hash table.
-
-\`\`\`python
-def two_sum(nums, target):
-    seen = {}
-    for i, num in enumerate(nums):
-        comp = target - num
-        if comp in seen:
-            return [seen[comp], i]
-        seen[num] = i
-    return []
-\`\`\`
-
-#### Approach 2: Two Pointers on Sorted Arrays (O(N log N) Time, O(1) Space)
-If the array is sorted, we place one pointer at the start and one at the end, moving inward depending on whether the current sum is less than or greater than \`target\`.`,
+          content: `### Two Sum Formulation
+Given an array and target, find two indices summing to target in O(N) time using a hash map for O(1) complement lookup.`,
           keyPoints: [
-            "Hash maps allow complement lookup in O(1) average time.",
-            "The two-pointer technique avoids extra space if the array is already sorted.",
+            "Hash maps provide O(1) complement lookup.",
           ],
         },
         mcqs: [
           {
             id: "dsa-l1-q1",
-            question: "What is the optimal time complexity to solve the Two Sum problem using a hash map?",
+            question: "What is the optimal time complexity to solve Two Sum with a hash map?",
             options: ["O(N^2)", "O(N log N)", "O(N)", "O(1)"],
             correctIndex: 2,
-            explanation: "A single pass through the array with O(1) hash map lookups achieves O(N) linear time complexity.",
-          },
-          {
-            id: "dsa-l1-q2",
-            question: "When can the two-pointer technique be directly applied without extra memory?",
-            options: [
-              "When the array is sorted",
-              "When the array has negative numbers only",
-              "When the array size is a power of 2",
-              "Any unsorted array",
-            ],
-            correctIndex: 0,
-            explanation: "The directional decisions (moving left pointer rightward or right pointer leftward) depend on sorted monotonicity.",
+            explanation: "Single pass with O(1) hash map lookup gives O(N).",
           },
         ],
         codingProblem: {
           id: "dsa-prob-twosum",
           title: "Two Sum Indices Finder",
           difficulty: "easy",
-          companyTags: ["Amazon OA", "Google L3", "TCS Digital"],
-          description: "Given an integer array and a target sum, output the 0-based indices of the two numbers that add up to target.",
+          companyTags: ["Amazon", "Google", "TCS Digital"],
+          description: "Given an integer array and target sum, output the 0-based indices of the two numbers that add up to target.",
           inputFormat: "First line: `N target`\nSecond line: `N` space-separated integers.",
           outputFormat: "Print the two indices separated by a space (smaller index first).",
           constraints: "2 <= N <= 10^5\n-10^9 <= nums[i], target <= 10^9",
@@ -459,60 +414,38 @@ If the array is sorted, we place one pointer at the start and one at the end, mo
         lectureNumber: 2,
         unitNumber: 1,
         title: "Stack Applications: Valid Parentheses",
-        description: "LIFO stack mechanics for balancing brackets, matching opening with closing characters, and detecting syntax errors.",
+        description: "LIFO stack mechanics for balancing brackets, matching opening with closing characters, and syntax validation.",
         note: {
           id: "dsa-lec2-note",
           title: "Balanced Brackets using Stack (LIFO)",
           readTime: "03:45",
-          content: `### Problem Overview
-Given a string containing \`(\`, \`)\`, \`{\`, \`}\`, \`[\`, \`]\`, determine if the input string has valid matching parentheses.
-
-\`\`\`python
-def isValid(s: str) -> bool:
-    stack = []
-    mapping = {")": "(", "}": "{", "]": "["}
-    for char in s:
-        if char in mapping:
-            top = stack.pop() if stack else '#'
-            if mapping[char] != top:
-                return False
-        else:
-            stack.append(char)
-    return not stack
-\`\`\``,
+          content: `### Stack Bracket Matching
+Push opening brackets; on closing bracket verify top of stack matches. Empty stack at end denotes valid string.`,
           keyPoints: [
-            "Every closing bracket must match the most recently opened bracket.",
-            "An empty stack at the end signifies complete balance.",
+            "Stack follows Last-In First-Out (LIFO).",
           ],
         },
         mcqs: [
           {
             id: "dsa-l2-q1",
-            question: "Which data structure follows the Last-In, First-Out (LIFO) order?",
+            question: "Which data structure follows LIFO order?",
             options: ["Queue", "Stack", "Binary Heap", "Linked List"],
             correctIndex: 1,
-            explanation: "Stacks strictly follow LIFO where the last element pushed is the first to be popped.",
-          },
-          {
-            id: "dsa-l2-q2",
-            question: "What is the time complexity of validating a string of length N using a stack?",
-            options: ["O(N)", "O(N^2)", "O(log N)", "O(1)"],
-            correctIndex: 0,
-            explanation: "Each character is pushed and popped at most once, resulting in linear O(N) time.",
+            explanation: "Stack is LIFO.",
           },
         ],
         codingProblem: {
           id: "dsa-prob-valid-parens",
           title: "Valid Parentheses Checker",
           difficulty: "easy",
-          companyTags: ["Microsoft", "Adobe", "Meta"],
-          description: "Given a string `s` containing just characters `(`, `)`, `{`, `}`, `[` and `]`, determine if the input string is valid. Print `Valid` or `Invalid`.",
-          inputFormat: "A single line containing the bracket string `s`.",
-          outputFormat: "Print `Valid` if brackets are balanced, otherwise `Invalid`.",
+          companyTags: ["Microsoft", "Adobe"],
+          description: "Given a string `s` containing brackets `()[]{}` determine if brackets are balanced.",
+          inputFormat: "A single line containing bracket string `s`.",
+          outputFormat: "Print `Valid` if balanced, otherwise `Invalid`.",
           constraints: "1 <= len(s) <= 10000",
           sampleInput: "()[]{}",
           sampleOutput: "Valid",
-          explanation: "All brackets open and close in matching pairs.",
+          explanation: "All pairs match.",
           starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
             { id: "dsa-l2-tc1", input: "()[]{}", expectedOutput: "Valid", isSecret: false },
@@ -521,11 +454,192 @@ def isValid(s: str) -> bool:
           ],
         },
       },
+      {
+        id: "dsa-lec3",
+        lectureNumber: 3,
+        unitNumber: 2,
+        title: "Linked List Reversal & Pointer Manipulation",
+        description: "Iterative pointer updates (`prev`, `curr`, `next`) to reverse a singly linked list in O(N) time and O(1) space.",
+        note: {
+          id: "dsa-lec3-note",
+          title: "Singly Linked List Reversal Algorithm",
+          readTime: "04:00",
+          content: `### Reversing Linked List
+Iterate while updating pointers: \`curr.next = prev\`, then shift \`prev\` and \`curr\`.`,
+          keyPoints: [
+            "Runs in O(N) time with O(1) memory.",
+          ],
+        },
+        mcqs: [
+          {
+            id: "dsa-l3-q1",
+            question: "What is the auxiliary space complexity of iteratively reversing a linked list?",
+            options: ["O(N)", "O(1)", "O(log N)", "O(N^2)"],
+            correctIndex: 1,
+            explanation: "Only 3 pointer variables are used, giving O(1) space.",
+          },
+        ],
+        codingProblem: {
+          id: "dsa-prob-reverse-list",
+          title: "Singly Linked List Inversion",
+          difficulty: "easy",
+          companyTags: ["Apple", "Uber", "Amazon"],
+          description: "Given N space-separated integers representing nodes in a linked list, reverse the list and print the new order.",
+          inputFormat: "First line: `N`\nSecond line: `N` space-separated integers.",
+          outputFormat: "Print the reversed values separated by a space.",
+          constraints: "1 <= N <= 10^5",
+          sampleInput: "5\n1 2 3 4 5",
+          sampleOutput: "5 4 3 2 1",
+          explanation: "Nodes are printed in reverse order.",
+          starterCode: CLEAN_LAB_STARTER_CODE,
+          testCases: [
+            { id: "dsa-l3-tc1", input: "5\n1 2 3 4 5", expectedOutput: "5 4 3 2 1", isSecret: false },
+            { id: "dsa-l3-tc2", input: "2\n10 20", expectedOutput: "20 10", isSecret: false },
+            { id: "dsa-l3-tc3", input: "1\n42", expectedOutput: "42", isSecret: true },
+          ],
+        },
+      },
+      {
+        id: "dsa-lec4",
+        lectureNumber: 4,
+        unitNumber: 2,
+        title: "Binary Search in Logarithmic Time",
+        description: "Divide-and-conquer search on sorted arrays, calculating mid safely (`mid = low + (high - low) / 2`).",
+        note: {
+          id: "dsa-lec4-note",
+          title: "Binary Search Invariants & Complexity",
+          readTime: "03:30",
+          content: `### Binary Search
+Halves search space each iteration, guaranteeing O(log N) worst-case time complexity on sorted data.`,
+          keyPoints: [
+            "Requires monotonically sorted data.",
+          ],
+        },
+        mcqs: [
+          {
+            id: "dsa-l4-q1",
+            question: "What is the maximum number of comparisons for binary search on an array of 1024 elements?",
+            options: ["1024", "10", "11", "512"],
+            correctIndex: 1,
+            explanation: "log2(1024) = 10 comparisons.",
+          },
+        ],
+        codingProblem: {
+          id: "dsa-prob-binary-search",
+          title: "Binary Search Target Index",
+          difficulty: "easy",
+          companyTags: ["Google", "Bloomberg"],
+          description: "Given sorted array of N distinct integers and a target value, return target's index or -1 if not present.",
+          inputFormat: "First line: `N target`\nSecond line: `N` space-separated sorted integers.",
+          outputFormat: "Print the 0-based index or -1.",
+          constraints: "1 <= N <= 10^5\n-10^9 <= nums[i], target <= 10^9",
+          sampleInput: "6 9\n-1 0 3 5 9 12",
+          sampleOutput: "4",
+          explanation: "9 exists at index 4.",
+          starterCode: CLEAN_LAB_STARTER_CODE,
+          testCases: [
+            { id: "dsa-l4-tc1", input: "6 9\n-1 0 3 5 9 12", expectedOutput: "4", isSecret: false },
+            { id: "dsa-l4-tc2", input: "6 2\n-1 0 3 5 9 12", expectedOutput: "-1", isSecret: false },
+            { id: "dsa-l4-tc3", input: "1 5\n5", expectedOutput: "0", isSecret: true },
+          ],
+        },
+      },
+      {
+        id: "dsa-lec5",
+        lectureNumber: 5,
+        unitNumber: 3,
+        title: "Kadane's Algorithm: Maximum Subarray",
+        description: "Dynamic programming approach for largest contiguous subarray sum in linear O(N) time.",
+        note: {
+          id: "dsa-lec5-note",
+          title: "Kadane's Algorithm Mechanics",
+          readTime: "04:30",
+          content: `### Maximum Subarray Sum
+\`currentMax = max(x, currentMax + x)\` and \`globalMax = max(globalMax, currentMax)\`.`,
+          keyPoints: [
+            "Runs in single pass O(N) with O(1) space.",
+          ],
+        },
+        mcqs: [
+          {
+            id: "dsa-l5-q1",
+            question: "What is the time complexity of Kadane's algorithm?",
+            options: ["O(N^2)", "O(N log N)", "O(N)", "O(1)"],
+            correctIndex: 2,
+            explanation: "Single linear pass O(N).",
+          },
+        ],
+        codingProblem: {
+          id: "dsa-prob-max-subarray",
+          title: "Maximum Subarray Sum",
+          difficulty: "medium",
+          companyTags: ["Amazon", "Microsoft", "LinkedIn"],
+          description: "Given an integer array `nums`, find the subarray with the largest sum and return its sum.",
+          inputFormat: "First line: `N`\nSecond line: `N` space-separated integers.",
+          outputFormat: "Print the maximum subarray sum.",
+          constraints: "1 <= N <= 10^5\n-10^4 <= nums[i] <= 10^4",
+          sampleInput: "9\n-2 1 -3 4 -1 2 1 -5 4",
+          sampleOutput: "6",
+          explanation: "Subarray [4, -1, 2, 1] has the largest sum = 6.",
+          starterCode: CLEAN_LAB_STARTER_CODE,
+          testCases: [
+            { id: "dsa-l5-tc1", input: "9\n-2 1 -3 4 -1 2 1 -5 4", expectedOutput: "6", isSecret: false },
+            { id: "dsa-l5-tc2", input: "1\n1", expectedOutput: "1", isSecret: false },
+            { id: "dsa-l5-tc3", input: "5\n5 4 -1 7 8", expectedOutput: "23", isSecret: true },
+          ],
+        },
+      },
+      {
+        id: "dsa-lec6",
+        lectureNumber: 6,
+        unitNumber: 4,
+        title: "Dynamic Programming: Climbing Stairs",
+        description: "Optimal subproblems, recurrence relation f(n) = f(n-1) + f(n-2), and space-optimized Fibonacci DP.",
+        note: {
+          id: "dsa-lec6-note",
+          title: "Fibonacci Sequence DP Formulation",
+          readTime: "03:45",
+          content: `### Climbing Stairs
+To reach step n, you could have come from step n-1 or n-2. Thus ways(n) = ways(n-1) + ways(n-2).`,
+          keyPoints: [
+            "Identical to Fibonacci sequence.",
+            "Can be computed in O(N) time and O(1) space.",
+          ],
+        },
+        mcqs: [
+          {
+            id: "dsa-l6-q1",
+            question: "How many ways are there to climb 3 stairs if you can take 1 or 2 steps?",
+            options: ["2", "3", "4", "5"],
+            correctIndex: 1,
+            explanation: "3 ways: (1+1+1), (1+2), (2+1).",
+          },
+        ],
+        codingProblem: {
+          id: "dsa-prob-climb-stairs",
+          title: "Distinct Stair Climbing Ways",
+          difficulty: "easy",
+          companyTags: ["Google", "Amazon"],
+          description: "It takes `n` steps to reach the top. Each time you can climb 1 or 2 steps. In how many distinct ways can you climb to the top?",
+          inputFormat: "A single integer `n`.",
+          outputFormat: "Print the total number of distinct ways.",
+          constraints: "1 <= n <= 45",
+          sampleInput: "3",
+          sampleOutput: "3",
+          explanation: "1+1+1, 1+2, 2+1.",
+          starterCode: CLEAN_LAB_STARTER_CODE,
+          testCases: [
+            { id: "dsa-l6-tc1", input: "2", expectedOutput: "2", isSecret: false },
+            { id: "dsa-l6-tc2", input: "3", expectedOutput: "3", isSecret: false },
+            { id: "dsa-l6-tc3", input: "5", expectedOutput: "8", isSecret: true },
+          ],
+        },
+      },
     ],
   },
 
   // =========================================================================
-  // 3. PYTHON PROGRAMMING LAB (Matches Screenshot)
+  // 3. PYTHON PROGRAMMING LAB (CS101)
   // =========================================================================
   python: {
     id: "python",
@@ -551,33 +665,18 @@ def isValid(s: str) -> bool:
           title: "String Slicing & Algorithmic Manipulation",
           readTime: "03:30",
           content: `### String Slicing in Python
-Python strings are indexed starting at 0. Negative indices count backward from -1.
-
-\`\`\`python
-s = "madam"
-is_palindrome = s == s[::-1]
-\`\`\`
-
-The slice \`s[::-1]\` uses a step of \`-1\` to produce a reversed copy of the string in O(N) time.`,
+\`s[::-1]\` produces a reversed string in O(N) time using step -1.`,
           keyPoints: [
             "Strings are immutable in Python.",
-            "Case-insensitive comparisons should normalize with `.lower()`.",
           ],
         },
         mcqs: [
           {
             id: "py-l1-q1",
-            question: "What is the result of 'Computer'[1:4] in Python?",
+            question: "What is 'Computer'[1:4] in Python?",
             options: ["'omp'", "'ompu'", "'Com'", "'Compute'"],
             correctIndex: 0,
-            explanation: "Slice [1:4] extracts characters at indices 1, 2, and 3 ('o', 'm', 'p').",
-          },
-          {
-            id: "py-l1-q2",
-            question: "Which method removes leading and trailing whitespace from a Python string?",
-            options: ["trim()", "strip()", "clean()", "delete()"],
-            correctIndex: 1,
-            explanation: "`.strip()` strips leading and trailing whitespace characters.",
+            explanation: "Indices 1, 2, 3 give 'omp'.",
           },
         ],
         codingProblem: {
@@ -585,7 +684,7 @@ The slice \`s[::-1]\` uses a step of \`-1\` to produce a reversed copy of the st
           title: "Palindrome String Verifier",
           difficulty: "easy",
           companyTags: ["TCS NQT", "Cognizant", "Infosys"],
-          description: "Given a string `s`, determine if it is a palindrome ignoring case and alphanumeric characters. Print `True` or `False`.",
+          description: "Given a string `s`, determine if it is a palindrome. Print `True` or `False`.",
           inputFormat: "A single line containing the string `s`.",
           outputFormat: "Print `True` if palindrome, else `False`.",
           constraints: "1 <= len(s) <= 1000",
@@ -600,11 +699,101 @@ The slice \`s[::-1]\` uses a step of \`-1\` to produce a reversed copy of the st
           ],
         },
       },
+      {
+        id: "py-lec2",
+        lectureNumber: 2,
+        unitNumber: 2,
+        title: "Collections & Hash Sets: Contains Duplicate",
+        description: "Utilizing Python `set` for O(1) membership testing and identifying duplicate elements.",
+        note: {
+          id: "py-lec2-note",
+          title: "Python Set & Membership Complexity",
+          readTime: "03:45",
+          content: `### Set Data Structure
+A set in Python uses a hash table. Checking \`x in s\` has average O(1) time complexity.`,
+          keyPoints: [
+            "Sets do not allow duplicate keys.",
+          ],
+        },
+        mcqs: [
+          {
+            id: "py-l2-q1",
+            question: "What is the average time complexity of checking membership in a Python set?",
+            options: ["O(1)", "O(N)", "O(log N)", "O(N^2)"],
+            correctIndex: 0,
+            explanation: "Hash sets have average O(1) lookup.",
+          },
+        ],
+        codingProblem: {
+          id: "py-prob-contains-dup",
+          title: "Duplicate Value Detector",
+          difficulty: "easy",
+          companyTags: ["Apple", "Adobe"],
+          description: "Given array of N integers, return `true` if any value appears at least twice, otherwise `false`.",
+          inputFormat: "First line: `N`\nSecond line: `N` space-separated integers.",
+          outputFormat: "Print `true` or `false`.",
+          constraints: "1 <= N <= 10^5",
+          sampleInput: "4\n1 2 3 1",
+          sampleOutput: "true",
+          explanation: "1 appears twice.",
+          starterCode: CLEAN_LAB_STARTER_CODE,
+          testCases: [
+            { id: "py-l2-tc1", input: "4\n1 2 3 1", expectedOutput: "true", isSecret: false },
+            { id: "py-l2-tc2", input: "4\n1 2 3 4", expectedOutput: "false", isSecret: false },
+            { id: "py-l2-tc3", input: "5\n9 8 7 6 9", expectedOutput: "true", isSecret: true },
+          ],
+        },
+      },
+      {
+        id: "py-lec3",
+        lectureNumber: 3,
+        unitNumber: 2,
+        title: "Dictionary Word & Character Frequency",
+        description: "Building associative frequency tables in Python using dictionaries and sorting keys.",
+        note: {
+          id: "py-lec3-note",
+          title: "Python Dictionaries & Key Value Mapping",
+          readTime: "03:30",
+          content: `### Python Dictionaries
+Dictionaries map hashable keys to arbitrary values with fast O(1) access.`,
+          keyPoints: [
+            "Keys must be hashable (immutable).",
+          ],
+        },
+        mcqs: [
+          {
+            id: "py-l3-q1",
+            question: "Which data type CANNOT be used as a dictionary key in Python?",
+            options: ["int", "string", "tuple", "list"],
+            correctIndex: 3,
+            explanation: "Lists are mutable and unhashable.",
+          },
+        ],
+        codingProblem: {
+          id: "py-prob-word-count",
+          title: "Word Frequency Analyzer",
+          difficulty: "easy",
+          companyTags: ["Amazon", "Uber"],
+          description: "Count the frequency of each unique space-separated word. Print them sorted alphabetically formatted as `word:count`.",
+          inputFormat: "A single line containing words separated by spaces.",
+          outputFormat: "Print each `word:count` on a new line.",
+          constraints: "1 <= words <= 1000",
+          sampleInput: "apple banana apple orange banana apple",
+          sampleOutput: "apple:3\nbanana:2\norange:1",
+          explanation: "apple:3, banana:2, orange:1.",
+          starterCode: CLEAN_LAB_STARTER_CODE,
+          testCases: [
+            { id: "py-l3-tc1", input: "apple banana apple orange banana apple", expectedOutput: "apple:3\nbanana:2\norange:1", isSecret: false },
+            { id: "py-l3-tc2", input: "cat dog bird", expectedOutput: "bird:1\ncat:1\ndog:1", isSecret: false },
+            { id: "py-l3-tc3", input: "hello hello world", expectedOutput: "hello:2\nworld:1", isSecret: true },
+          ],
+        },
+      },
     ],
   },
 
   // =========================================================================
-  // 4. C PROGRAMMING LAB (Matches Screenshot)
+  // 4. C PROGRAMMING LAB (CS101)
   // =========================================================================
   c: {
     id: "c",
@@ -630,60 +819,129 @@ The slice \`s[::-1]\` uses a step of \`-1\` to produce a reversed copy of the st
           title: "Pointer Mechanics in C",
           readTime: "04:15",
           content: `### Pointers in C
-A pointer is a variable that stores the memory address of another variable.
-
-\`\`\`c
-void swap(int *a, int *b) {
-    int temp = *a;
-    *a = *b;
-    *b = temp;
-}
-\`\`\`
-
-Passing memory addresses allows the function to mutate variables residing in the caller's stack frame.`,
+Pointers store memory addresses of variables. Passing addresses allows mutating caller stack frames.`,
           keyPoints: [
-            "The `&` operator returns the memory address of a variable.",
-            "The `*` dereference operator accesses the value stored at that address.",
+            "`&` gets the memory address.",
+            "`*` dereferences the value at that address.",
           ],
         },
         mcqs: [
           {
             id: "c-l1-q1",
-            question: "What is the size of an integer pointer (int*) on a 64-bit operating system?",
+            question: "What is the size of an int* pointer on a 64-bit operating system?",
             options: ["4 bytes", "8 bytes", "2 bytes", "16 bytes"],
             correctIndex: 1,
-            explanation: "On 64-bit architectures, memory addresses are 64 bits wide (8 bytes).",
-          },
-          {
-            id: "c-l1-q2",
-            question: "What does the expression `*ptr` do when `ptr` is a pointer to `int`?",
-            options: [
-              "Returns the memory address of ptr",
-              "Accesses the value of the integer stored at the address in ptr",
-              "Increments ptr by 4 bytes",
-              "Frees the memory at ptr",
-            ],
-            correctIndex: 1,
-            explanation: "Dereferencing retrieves the value located at the target memory address.",
+            explanation: "Addresses on 64-bit OS are 8 bytes.",
           },
         ],
         codingProblem: {
           id: "c-prob-swap",
           title: "Pointer Swap Operation",
           difficulty: "easy",
-          companyTags: ["Qualcomm", "Embedded Systems", "TCS Ninja"],
+          companyTags: ["Qualcomm", "Embedded", "TCS Ninja"],
           description: "Read two integers `a` and `b`, swap their values using pointers, and print the swapped values.",
           inputFormat: "Two space-separated integers `a` and `b`.",
           outputFormat: "Print the swapped integers separated by a space.",
           constraints: "-10^6 <= a, b <= 10^6",
           sampleInput: "10 20",
           sampleOutput: "20 10",
-          explanation: "10 and 20 are swapped to 20 10.",
+          explanation: "10 and 20 swapped give 20 10.",
           starterCode: CLEAN_LAB_STARTER_CODE,
           testCases: [
             { id: "c-l1-tc1", input: "10 20", expectedOutput: "20 10", isSecret: false },
             { id: "c-l1-tc2", input: "-5 99", expectedOutput: "99 -5", isSecret: false },
             { id: "c-l1-tc3", input: "0 42", expectedOutput: "42 0", isSecret: true },
+          ],
+        },
+      },
+      {
+        id: "c-lec2",
+        lectureNumber: 2,
+        unitNumber: 1,
+        title: "Bitwise Operators & Even-Odd Checking",
+        description: "Harnessing bitwise AND (`& 1`) and shift operators for high-speed hardware level arithmetic.",
+        note: {
+          id: "c-lec2-note",
+          title: "Bitwise Operations in C",
+          readTime: "03:30",
+          content: `### Bitwise Operators
+\`n & 1\` tests the least significant bit (LSB). If LSB is 1, number is odd; if 0, even.`,
+          keyPoints: [
+            "Bitwise operations execute in 1 CPU clock cycle.",
+          ],
+        },
+        mcqs: [
+          {
+            id: "c-l2-q1",
+            question: "What does the expression (x & 1) evaluate to for an odd number?",
+            options: ["0", "1", "x", "-1"],
+            correctIndex: 1,
+            explanation: "Odd numbers have LSB set to 1.",
+          },
+        ],
+        codingProblem: {
+          id: "c-prob-bitwise-evenodd",
+          title: "Bitwise Even-Odd Classifier",
+          difficulty: "easy",
+          companyTags: ["Intel", "ARM"],
+          description: "Given an integer `N`, determine if it is Even or Odd using bitwise AND operator `&`.",
+          inputFormat: "A single integer `N`.",
+          outputFormat: "Print `Even` or `Odd`.",
+          constraints: "-10^9 <= N <= 10^9",
+          sampleInput: "42",
+          sampleOutput: "Even",
+          explanation: "42 is even.",
+          starterCode: CLEAN_LAB_STARTER_CODE,
+          testCases: [
+            { id: "c-l2-tc1", input: "42", expectedOutput: "Even", isSecret: false },
+            { id: "c-l2-tc2", input: "17", expectedOutput: "Odd", isSecret: false },
+            { id: "c-l2-tc3", input: "0", expectedOutput: "Even", isSecret: true },
+          ],
+        },
+      },
+      {
+        id: "c-lec3",
+        lectureNumber: 3,
+        unitNumber: 2,
+        title: "Prime Number Generator & Loop Control",
+        description: "Optimizing primality tests up to `sqrt(N)` with break conditions and iteration control.",
+        note: {
+          id: "c-lec3-note",
+          title: "Primality Testing Complexity",
+          readTime: "04:00",
+          content: `### Primality Testing
+Trial division up to \`sqrt(N)\` reduces complexity from O(N) to O(sqrt(N)).`,
+          keyPoints: [
+            "2 is the only even prime number.",
+          ],
+        },
+        mcqs: [
+          {
+            id: "c-l3-q1",
+            question: "What is the time complexity of checking if N is prime using trial division up to sqrt(N)?",
+            options: ["O(N)", "O(sqrt(N))", "O(log N)", "O(1)"],
+            correctIndex: 1,
+            explanation: "Loops up to sqrt(N).",
+          },
+        ],
+        codingProblem: {
+          id: "c-prob-prime-check",
+          title: "Primality Verifier",
+          difficulty: "easy",
+          companyTags: ["TCS", "Cognizant"],
+          description: "Given an integer `N`, print `Prime` if it is a prime number, otherwise print `Not Prime`.",
+          inputFormat: "An integer `N`.",
+          outputFormat: "Print `Prime` or `Not Prime`.",
+          constraints: "1 <= N <= 10^9",
+          sampleInput: "29",
+          sampleOutput: "Prime",
+          explanation: "29 has no divisors other than 1 and 29.",
+          starterCode: CLEAN_LAB_STARTER_CODE,
+          testCases: [
+            { id: "c-l3-tc1", input: "29", expectedOutput: "Prime", isSecret: false },
+            { id: "c-l3-tc2", input: "1", expectedOutput: "Not Prime", isSecret: false },
+            { id: "c-l3-tc3", input: "4", expectedOutput: "Not Prime", isSecret: true },
+            { id: "c-l3-tc4", input: "97", expectedOutput: "Prime", isSecret: true },
           ],
         },
       },
