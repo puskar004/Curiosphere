@@ -17,7 +17,6 @@ import {
   PlayCircle,
   GraduationCap,
   Radio,
-  Terminal,
   CalendarCheck,
 } from "lucide-react";
 import {
@@ -36,7 +35,6 @@ import {
   type ChapterAssignment,
 } from "@/lib/teacher-store";
 import { emitRoleChanged } from "@/lib/role-events";
-import { InstallPwaPrompt } from "@/components/InstallPwaPrompt";
 
 const tiles = [
   {
@@ -45,13 +43,6 @@ const tiles = [
     desc: "Complete CBSE bookshelf with in-app PDFs",
     icon: BookOpen,
     tone: "bg-indigo-50 text-indigo-600",
-  },
-  {
-    href: "/code",
-    title: "Coding Playground",
-    desc: "Python, C, C++ & DSA practice with AI mentor",
-    icon: Terminal,
-    tone: "bg-cyan-50 text-cyan-700",
   },
   {
     href: "/blueprint",
@@ -356,9 +347,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-
-      {/* Mobile App & APK Banner */}
-      <InstallPwaPrompt className="mt-4" />
 
       {/* Stats row */}
       {isSignedIn && p && (

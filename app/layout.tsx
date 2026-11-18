@@ -34,12 +34,6 @@ export const metadata: Metadata = {
   description:
     "Class 10–12 CBSE mastery with NCERT PDFs, PYQs, Gemini tutor, safe YouTube, and focus tools.",
   applicationName: "CurioSphere",
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "black-translucent",
-    title: "CurioSphere",
-  },
   authors: [{ name: "CurioSphere" }],
   keywords: ["CurioSphere", "NCERT", "CBSE", "Class 10", "Class 12", "study"],
   icons: {
@@ -64,12 +58,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-      </head>
       <body
         suppressHydrationWarning
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-50 text-slate-900`}

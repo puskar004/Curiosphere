@@ -9,14 +9,12 @@ import {
   MessageSquare,
   Radio,
   Target,
-  Terminal,
   User,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const studentTabs = [
   { href: "/dashboard", label: "Home", icon: Home },
-  { href: "/code", label: "Labs", icon: Terminal },
   { href: "/ncert", label: "NCERT", icon: BookOpen },
   { href: "/live-class", label: "Live", icon: Radio },
   { href: "/common-room", label: "Chats", icon: MessageSquare },
@@ -25,7 +23,6 @@ const studentTabs = [
 
 const teacherTabs = [
   { href: "/teacher", label: "Hub", icon: Home },
-  { href: "/teacher?tab=coding", label: "Labs", icon: Terminal },
   { href: "/teacher?tab=live", label: "Live", icon: Radio },
   { href: "/teacher/test", label: "Tests", icon: Target },
   { href: "/common-room", label: "Chats", icon: MessageSquare },

@@ -18,7 +18,6 @@ import {
 } from "@/lib/notifications";
 import { displayName } from "@/lib/display-name";
 import { getTabSwitchCount } from "@/components/FocusLock";
-import { InstallPwaPrompt } from "@/components/InstallPwaPrompt";
 
 export default function AppTopBar() {
   const { userId } = useAuth();
@@ -248,9 +247,6 @@ export default function AppTopBar() {
               TEACHER
             </div>
           )}
-
-          {/* Install Mobile PWA App Button */}
-          <InstallPwaPrompt compact />
 
           <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
             {user && (

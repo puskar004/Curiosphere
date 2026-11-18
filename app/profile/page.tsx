@@ -20,7 +20,6 @@ import {
 } from "@/lib/user-store";
 import { getJoinedClass, getRole, setRole } from "@/lib/teacher-store";
 import { emitRoleChanged } from "@/lib/role-events";
-import { InstallPwaPrompt } from "@/components/InstallPwaPrompt";
 
 export default function ProfilePage() {
   const { user, isSignedIn } = useUser();
@@ -255,11 +254,6 @@ export default function ProfilePage() {
           {classMsg && (
             <p className="mt-2 text-xs text-slate-600">{classMsg}</p>
           )}
-        </div>
-
-        {/* Mobile App Download */}
-        <div className="mt-4">
-          <InstallPwaPrompt />
         </div>
 
         <label className="mt-4 flex items-center gap-2 text-sm">
