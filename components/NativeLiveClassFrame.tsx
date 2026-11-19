@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type MutableRefObject } from "react";
 import {
   Camera,
   CameraOff,
@@ -25,16 +25,25 @@ import {
   RefreshCw,
   X,
   Layers,
+  Circle,
+  CloudUpload,
+  CheckCircle2,
+  Download,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type NativeLiveClassProps = {
   roomName: string;
+  classCode?: string;
   displayName: string;
   isTeacher?: boolean;
   subject?: string;
   title?: string;
   onLeave?: () => void;
+  endSignalRef?: MutableRefObject<(() => Promise<void>) | null>;
+  onRecordingPublished?: (url: string, title: string) => void;
 };
 
 interface ChatMessage {
@@ -55,11 +64,14 @@ const ICE_SERVERS: RTCConfiguration = {
 
 export default function NativeLiveClassFrame({
   roomName,
+  classCode,
   displayName,
   isTeacher = false,
   subject,
   title,
   onLeave,
+  endSignalRef,
+  onRecordingPublished,
 }: NativeLiveClassProps) {
   // Modes: "native" (In-app unlimited WebRTC) | "standalone" | "iframe"
   const [viewEngine, setViewEngine] = useState<"native" | "iframe">("native");
@@ -105,6 +117,393 @@ export default function NativeLiveClassFrame({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
 
+  // Automatic Live Class Recording & Cloudflare R2 Upload (Teacher only)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const recordDrawTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const recordingStartAtRef = useRef<number>(0);
+  const uploadInFlightRef = useRef<Promise<void> | null>(null);
+
+  const [recState, setRecState] = useState<
+    "idle" | "recording" | "uploading" | "uploaded" | "fallback" | "error"
+  >("idle");
+  const [recUploadPct, setRecUploadPct] = useState(0);
+  const [recMessage, setRecMessage] = useState<string | null>(null);
+  const [r2Configured, setR2Configured] = useState<boolean | null>(null);
+  const [lastBackupBlobUrl, setLastBackupBlobUrl] = useState<string | null>(null);
+
+  const effectiveClassCode = (classCode || roomName.replace(/^smartlearn-/i, "")).trim().toUpperCase();
+
+  // Check Cloudflare R2 status once for teacher
+  useEffect(() => {
+    if (!isTeacher) return;
+    let active = true;
+    fetch("/api/classroom/recording")
+      .then((r) => r.json())
+      .then((d) => {
+        if (active && typeof d.configured === "boolean") {
+          setR2Configured(d.configured);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [isTeacher]);
+
+  // Connect/swap audio tracks into persistent recording AudioContext
+  const connectStreamAudioToRecorder = useCallback((stream: MediaStream) => {
+    try {
+      const audioTracks = stream.getAudioTracks();
+      if (!audioTracks.length) return;
+      if (!audioCtxRef.current || !audioDestRef.current) return;
+      if (audioSourceRef.current) {
+        try {
+          audioSourceRef.current.disconnect();
+        } catch {
+          // ignore
+        }
+      }
+      const audioOnly = new MediaStream(audioTracks);
+      const src = audioCtxRef.current.createMediaStreamSource(audioOnly);
+      src.connect(audioDestRef.current);
+      audioSourceRef.current = src;
+    } catch {
+      // ignore audio reconnect glitches
+    }
+  }, []);
+
+  // Start automatic continuous recording (Canvas + AudioContext so Camera <-> Screen Share stays 1 video)
+  const startAutoRecording = useCallback(
+    (stream: MediaStream) => {
+      if (!isTeacher) return;
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        // Already recording — just route the new stream's audio into the active mixer
+        connectStreamAudioToRecorder(stream);
+        return;
+      }
+      if (typeof window === "undefined" || typeof MediaRecorder === "undefined") {
+        return;
+      }
+
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1280;
+        canvas.height = 720;
+        recordCanvasRef.current = canvas;
+        const ctx = canvas.getContext("2d");
+
+        if (recordDrawTimerRef.current) {
+          clearInterval(recordDrawTimerRef.current);
+        }
+
+        // Draw active video frame (webcam or screen share) at 20 FPS
+        recordDrawTimerRef.current = setInterval(() => {
+          if (!ctx) return;
+          const vid = localVideoRef.current;
+          ctx.fillStyle = "#090d16";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          if (vid && vid.readyState >= 2 && vid.videoWidth > 0 && vid.videoHeight > 0) {
+            const scale = Math.min(
+              canvas.width / vid.videoWidth,
+              canvas.height / vid.videoHeight
+            );
+            const dw = vid.videoWidth * scale;
+            const dh = vid.videoHeight * scale;
+            const dx = (canvas.width - dw) / 2;
+            const dy = (canvas.height - dh) / 2;
+            ctx.drawImage(vid, dx, dy, dw, dh);
+          } else {
+            ctx.fillStyle = "#94a3b8";
+            ctx.font = "bold 28px system-ui, sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(
+              title || "CurioSphere Live Class",
+              canvas.width / 2,
+              canvas.height / 2
+            );
+          }
+        }, 50);
+
+        const canvasStream = canvas.captureStream(20);
+        const tracks: MediaStreamTrack[] = [...canvasStream.getVideoTracks()];
+
+        // Persistent AudioContext destination so audio survives camera <-> screen switches
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext;
+        if (AudioCtx) {
+          const audioCtx = new AudioCtx();
+          const dest = audioCtx.createMediaStreamDestination();
+          audioCtxRef.current = audioCtx;
+          audioDestRef.current = dest;
+          connectStreamAudioToRecorder(stream);
+          tracks.push(...dest.stream.getAudioTracks());
+        } else {
+          tracks.push(...stream.getAudioTracks());
+        }
+
+        const combined = new MediaStream(tracks);
+        const preferredTypes = [
+          "video/webm;codecs=vp9,opus",
+          "video/webm;codecs=vp8,opus",
+          "video/webm",
+          "video/mp4",
+        ];
+        const mimeType =
+          preferredTypes.find((t) => MediaRecorder.isTypeSupported(t)) || "";
+
+        const recorder = new MediaRecorder(
+          combined,
+          mimeType
+            ? {
+                mimeType,
+                videoBitsPerSecond: 1_000_000,
+                audioBitsPerSecond: 96_000,
+              }
+            : undefined
+        );
+
+        recordedChunksRef.current = [];
+        recordingStartAtRef.current = Date.now();
+        recorder.ondataavailable = (ev) => {
+          if (ev.data && ev.data.size > 0) {
+            recordedChunksRef.current.push(ev.data);
+          }
+        };
+
+        recorder.start(5000); // flush chunk every 5s
+        mediaRecorderRef.current = recorder;
+        setRecState("recording");
+        setRecMessage(null);
+      } catch (err) {
+        console.warn("Auto-recording failed to start:", err);
+      }
+    },
+    [isTeacher, title, connectStreamAudioToRecorder]
+  );
+
+  const triggerLocalBackupDownload = useCallback(
+    (blob: Blob, ext: string) => {
+      const url = URL.createObjectURL(blob);
+      setLastBackupBlobUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
+      const a = document.createElement("a");
+      const safeName = (title || "live-class")
+        .replace(/[^a-z0-9]+/gi, "-")
+        .toLowerCase();
+      a.href = url;
+      a.download = `${safeName}-${Date.now()}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    },
+    [title]
+  );
+
+  // Stop recording and auto-upload directly to Cloudflare R2 + publish to classroom
+  const stopAndUploadRecording = useCallback(async () => {
+    if (!isTeacher) return;
+    if (uploadInFlightRef.current) {
+      return uploadInFlightRef.current;
+    }
+
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      return;
+    }
+
+    const work = (async () => {
+      const durationSec = Math.max(
+        1,
+        Math.round((Date.now() - (recordingStartAtRef.current || Date.now())) / 1000)
+      );
+
+      // Wait for MediaRecorder to flush final data chunk
+      const blob = await new Promise<Blob>((resolve) => {
+        const mime = recorder.mimeType || "video/webm";
+        recorder.onstop = () => {
+          resolve(new Blob(recordedChunksRef.current, { type: mime }));
+        };
+        try {
+          recorder.stop();
+        } catch {
+          resolve(new Blob(recordedChunksRef.current, { type: mime }));
+        }
+      });
+
+      // Clean up canvas & audio mixer
+      if (recordDrawTimerRef.current) {
+        clearInterval(recordDrawTimerRef.current);
+        recordDrawTimerRef.current = null;
+      }
+      if (audioSourceRef.current) {
+        try {
+          audioSourceRef.current.disconnect();
+        } catch {
+          // ignore
+        }
+        audioSourceRef.current = null;
+      }
+      if (audioCtxRef.current) {
+        try {
+          await audioCtxRef.current.close();
+        } catch {
+          // ignore
+        }
+        audioCtxRef.current = null;
+      }
+      mediaRecorderRef.current = null;
+
+      // Ignore empty/tiny accidental recordings (< 4 KB)
+      if (!blob || blob.size < 4096) {
+        setRecState("idle");
+        return;
+      }
+
+      const contentType = blob.type.includes("mp4") ? "video/mp4" : "video/webm";
+      const ext = contentType === "video/mp4" ? "mp4" : "webm";
+
+      setRecState("uploading");
+      setRecUploadPct(5);
+      setRecMessage("Preparing Cloudflare R2 upload…");
+
+      try {
+        // 1. Get presigned PUT URL from server
+        const presignRes = await fetch("/api/classroom/recording", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "presign",
+            classCode: effectiveClassCode,
+            title: title || "Live Class",
+            contentType,
+          }),
+        });
+        const presignData = await presignRes.json();
+
+        if (!presignRes.ok || !presignData.ok || !presignData.uploadUrl) {
+          // R2 not configured yet -> save locally so teacher never loses lecture!
+          triggerLocalBackupDownload(blob, ext);
+          setRecState("fallback");
+          setRecMessage(
+            presignData.configured === false
+              ? "Cloudflare R2 keys not set yet — recording saved locally to your device."
+              : presignData.error || "Upload unavailable — saved locally to your device."
+          );
+          return;
+        }
+
+        // 2. Direct browser -> Cloudflare R2 PUT upload with real-time progress
+        setRecMessage("Uploading recording to Cloudflare R2…");
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PUT", presignData.uploadUrl, true);
+          xhr.setRequestHeader("Content-Type", contentType);
+          xhr.upload.onprogress = (ev) => {
+            if (ev.lengthComputable && ev.total > 0) {
+              const pct = Math.min(95, Math.max(5, Math.round((ev.loaded / ev.total) * 95)));
+              setRecUploadPct(pct);
+            }
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              setRecUploadPct(98);
+              resolve();
+            } else {
+              reject(new Error(`Cloudflare R2 upload failed (${xhr.status})`));
+            }
+          };
+          xhr.onerror = () =>
+            reject(
+              new Error(
+                "Cloudflare R2 upload blocked (check R2 bucket CORS policy allows PUT from this domain)."
+              )
+            );
+          xhr.send(blob);
+        });
+
+        // 3. Publish uploaded video URL to Classroom Materials so students can watch
+        setRecMessage("Publishing video to classroom…");
+        const pubRes = await fetch("/api/classroom/recording", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "publish",
+            classCode: effectiveClassCode,
+            title: title || "Live Class",
+            subject: subject || "Live Recording",
+            publicUrl: presignData.publicUrl,
+            durationSec,
+          }),
+        });
+        const pubData = await pubRes.json();
+        if (!pubRes.ok || !pubData.ok) {
+          throw new Error(pubData.error || "Uploaded to R2 but failed to publish to class.");
+        }
+
+        setRecUploadPct(100);
+        setRecState("uploaded");
+        setRecMessage("Uploaded to Cloudflare R2 & published to students!");
+        onRecordingPublished?.(
+          presignData.publicUrl,
+          pubData.material?.title || title || "Live Class Recording"
+        );
+      } catch (err) {
+        // Safety fallback: download locally so lecture is never lost
+        triggerLocalBackupDownload(blob, ext);
+        setRecState("error");
+        setRecMessage(
+          `${err instanceof Error ? err.message : "Upload failed"} — Backup saved to your device.`
+        );
+      }
+    })();
+
+    uploadInFlightRef.current = work;
+    try {
+      await work;
+    } finally {
+      uploadInFlightRef.current = null;
+    }
+  }, [
+    isTeacher,
+    effectiveClassCode,
+    title,
+    subject,
+    onRecordingPublished,
+    triggerLocalBackupDownload,
+  ]);
+
+  // Register stopAndUploadRecording with parent Teacher Hub ("End session" button)
+  useEffect(() => {
+    if (!endSignalRef) return;
+    endSignalRef.current = stopAndUploadRecording;
+    return () => {
+      endSignalRef.current = null;
+    };
+  }, [endSignalRef, stopAndUploadRecording]);
+
+  // Warn teacher before closing browser tab while recording or uploading
+  useEffect(() => {
+    if (!isTeacher) return;
+    if (recState !== "recording" && recState !== "uploading") return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue =
+        "Live class recording is active/uploading. Click 'End session' so the video uploads automatically.";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [isTeacher, recState]);
+
   // Jitsi URL for external window (unlimited when opened outside iframe)
   const jitsiDirectUrl = `https://meet.jit.si/${cleanRoom}#userInfo.displayName=${encodeURIComponent(
     displayName || "Student"
@@ -147,6 +546,8 @@ export default function NativeLiveClassFrame({
       setMicActive(true);
       setIsScreenSharing(false);
       setBroadcasterOnline(true);
+      // Automatically start recording teacher's live class
+      startAutoRecording(stream);
 
       // Announce broadcaster to signaling server
       void fetch("/api/classroom/webrtc", {
@@ -164,7 +565,7 @@ export default function NativeLiveClassFrame({
     } catch {
       // User cancelled camera permission or device busy
     }
-  }, [cleanRoom, displayName]);
+  }, [cleanRoom, displayName, startAutoRecording]);
 
   // -------------------------------------------------------------
   // TEACHER: TOGGLE SCREEN SHARE
@@ -201,6 +602,8 @@ export default function NativeLiveClassFrame({
       }
       setIsScreenSharing(true);
       setCameraActive(true);
+      // Keep recording seamlessly across camera <-> screen share
+      startAutoRecording(screenStream);
 
       // Announce screen share state
       void fetch("/api/classroom/webrtc", {
@@ -218,7 +621,7 @@ export default function NativeLiveClassFrame({
     } catch {
       // Cancelled screen share dialog
     }
-  }, [isScreenSharing, startCameraAndMic, cleanRoom, displayName]);
+  }, [isScreenSharing, startCameraAndMic, cleanRoom, displayName, startAutoRecording]);
 
   // Toggle Camera
   const toggleCamera = () => {
@@ -250,6 +653,9 @@ export default function NativeLiveClassFrame({
       void startCameraAndMic();
     }
     return () => {
+      if (recordDrawTimerRef.current) {
+        clearInterval(recordDrawTimerRef.current);
+      }
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((t) => t.stop());
       }
@@ -538,6 +944,32 @@ export default function NativeLiveClassFrame({
             <ShieldCheck className="h-3 w-3 text-indigo-400" />
             <span>Attendance Auto-Recorded</span>
           </span>
+
+          {/* Auto-Recording Status Pill (Teacher) */}
+          {isTeacher && recState === "recording" && (
+            <span
+              title="Class automatically recording — uploads to Cloudflare R2 when you click End session"
+              className="inline-flex items-center gap-1.5 rounded-full bg-rose-950/90 border border-rose-500/50 px-2.5 py-0.5 text-[11px] font-bold text-rose-300"
+            >
+              <Circle className="h-2.5 w-2.5 fill-rose-500 text-rose-500 animate-pulse" />
+              <span>AUTO REC</span>
+              <span className="hidden lg:inline text-[10px] text-rose-300/80">
+                · {r2Configured === false ? "Local Backup" : "Cloudflare R2"}
+              </span>
+            </span>
+          )}
+          {isTeacher && recState === "uploading" && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-950/90 border border-amber-500/50 px-2.5 py-0.5 text-[11px] font-bold text-amber-300">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span>Uploading to R2… {recUploadPct}%</span>
+            </span>
+          )}
+          {isTeacher && recState === "uploaded" && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-950/90 border border-emerald-500/50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-300">
+              <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+              <span>Recording Published</span>
+            </span>
+          )}
         </div>
 
         {/* Right Header Controls */}
@@ -695,6 +1127,61 @@ export default function NativeLiveClassFrame({
                   </span>
                 </div>
               )}
+
+              {/* Upload Progress / Recording Status Banner Overlay (Teacher) */}
+              {isTeacher &&
+                (recState === "uploading" ||
+                  recState === "uploaded" ||
+                  recState === "fallback" ||
+                  recState === "error") && (
+                  <div className="absolute bottom-4 left-4 right-4 z-30 mx-auto max-w-lg rounded-2xl border border-white/15 bg-slate-900/95 p-3.5 text-xs text-white shadow-2xl backdrop-blur">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 font-bold">
+                        {recState === "uploading" && (
+                          <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+                        )}
+                        {recState === "uploaded" && (
+                          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                        )}
+                        {(recState === "fallback" || recState === "error") && (
+                          <AlertTriangle className="h-4 w-4 text-amber-400" />
+                        )}
+                        <span>{recMessage || "Processing live recording…"}</span>
+                      </div>
+                      {recState === "uploading" && (
+                        <span className="font-mono text-amber-300">{recUploadPct}%</span>
+                      )}
+                      {recState !== "uploading" && (
+                        <button
+                          type="button"
+                          onClick={() => setRecState("idle")}
+                          className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    {recState === "uploading" && (
+                      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-400 transition-all duration-300"
+                          style={{ width: `${recUploadPct}%` }}
+                        />
+                      </div>
+                    )}
+                    {lastBackupBlobUrl && (recState === "fallback" || recState === "error") && (
+                      <div className="mt-2 flex items-center justify-end">
+                        <a
+                          href={lastBackupBlobUrl}
+                          download="live-class-recording.webm"
+                          className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1 text-[11px] font-bold text-indigo-300 hover:bg-slate-700"
+                        >
+                          <Download className="h-3 w-3" /> Download Backup Again
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
 
               {/* Live Status Overlay Chip */}
               <div className="absolute top-4 right-4 z-10 flex items-center gap-2 rounded-xl bg-black/60 backdrop-blur px-3 py-1.5 text-xs text-white border border-white/10 font-mono">
@@ -891,6 +1378,18 @@ export default function NativeLiveClassFrame({
                 {isScreenSharing ? <MonitorOff className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
                 <span>{isScreenSharing ? "Stop Screen Share" : "Share Screen"}</span>
               </button>
+
+              {recState === "recording" && (
+                <button
+                  type="button"
+                  onClick={() => void stopAndUploadRecording()}
+                  title="Stop recording early and upload to Cloudflare R2 right now"
+                  className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-600/20 px-3 py-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-600 hover:text-white transition"
+                >
+                  <CloudUpload className="h-4 w-4" />
+                  <span className="hidden sm:inline">Save &amp; Upload Now</span>
+                </button>
+              )}
             </>
           ) : (
             /* STUDENT CONTROLS */

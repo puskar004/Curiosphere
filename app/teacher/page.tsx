@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useCallback, useEffect, useState } from "react";
+import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useUser } from "@clerk/nextjs";
@@ -71,6 +71,8 @@ function TeacherInner() {
   const [activeCode, setActiveCode] = useState<string | null>(null);
   const [room, setRoom] = useState<Classroom | null>(null);
   const [loading, setLoading] = useState(true);
+  const stopRecordingRef = useRef<(() => Promise<void>) | null>(null);
+  const [endingWithUpload, setEndingWithUpload] = useState(false);
 
   const selectClass = useCallback(
     (code: string, list?: Classroom[]) => {
@@ -1319,11 +1321,16 @@ function TeacherInner() {
                       </div>
                       <button
                         type="button"
-                        disabled={busy}
+                        disabled={busy || endingWithUpload}
                         onClick={() => {
                           void (async () => {
                             setBusy(true);
+                            setEndingWithUpload(true);
                             try {
+                              // Auto-stop & upload live recording to Cloudflare R2 before tearing down video
+                              if (stopRecordingRef.current) {
+                                await stopRecordingRef.current();
+                              }
                               const data = await apiEndLive(room.code);
                               const next = (data.classroom || {
                                 ...room,
@@ -1361,7 +1368,7 @@ function TeacherInner() {
                               } catch {
                                 // ignore
                               }
-                              setMatNote("Live session ended.");
+                              setMatNote("Live session ended & recording saved.");
                               void refresh(true);
                             } catch (e) {
                               quietError(
@@ -1371,12 +1378,17 @@ function TeacherInner() {
                               );
                             } finally {
                               setBusy(false);
+                              setEndingWithUpload(false);
                             }
                           })();
                         }}
                         className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
                       >
-                        {busy ? "Ending…" : "End session"}
+                        {endingWithUpload
+                          ? "Saving recording & ending…"
+                          : busy
+                            ? "Ending…"
+                            : "End session & Save video"}
                       </button>
                     </div>
                     <div className="mt-3">
@@ -1387,6 +1399,11 @@ function TeacherInner() {
                         displayName={user?.fullName || "Teacher"}
                         title={`Teacher · ${room.liveSession.title}`}
                         subject={room.liveSession.subject}
+                        endSignalRef={stopRecordingRef}
+                        onRecordingPublished={(_url, recTitle) => {
+                          setMatNote(`Recording uploaded to Cloudflare R2: ${recTitle}`);
+                          void refresh(true);
+                        }}
                       />
                     </div>
                     <div className="mt-3 rounded-xl border border-white bg-white/80 p-3">

@@ -65,6 +65,11 @@ export default function JoinClassPage() {
     code?: string;
     id?: string;
   } | null>(null);
+  const [videoViewer, setVideoViewer] = useState<{
+    title: string;
+    url: string;
+    subject?: string;
+  } | null>(null);
 
   const mergeMaterials = (c: string, server: TeacherMaterial[]) => {
     const cached = readCachedClassMaterials(c);
@@ -555,8 +560,7 @@ export default function JoinClassPage() {
                         <FileText className="h-5 w-5 text-indigo-600" />
                         Access materials
                         <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">
-                          {mats.length} PDF
-                          {mats.length === 1 ? "" : "s"}
+                          {mats.length} item{mats.length === 1 ? "" : "s"}
                         </span>
                       </span>
                       <span className="text-xs font-bold text-indigo-600">
@@ -626,6 +630,18 @@ export default function JoinClassPage() {
                                   type="button"
                                   onClick={() => {
                                     const u = m.url || "";
+                                    const isDirectVideo =
+                                      /\.(webm|mp4|mov|m4v)(\?.*)?$/i.test(u) ||
+                                      (m.type === "video" &&
+                                        !/^https?:\/\/(www\.)?(youtube|youtu\.be|meet\.google)/i.test(u));
+                                    if (isDirectVideo) {
+                                      setVideoViewer({
+                                        title: m.title || "Recorded Live Class",
+                                        url: u,
+                                        subject: m.subject,
+                                      });
+                                      return;
+                                    }
                                     if (
                                       m.type === "video" ||
                                       m.type === "link" ||
@@ -698,6 +714,59 @@ export default function JoinClassPage() {
         materialId={viewer?.id}
         onClose={() => setViewer(null)}
       />
+
+      {/* Built-in Recorded Live Class Video Player Modal (Cloudflare R2) */}
+      {videoViewer && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-3 sm:p-6 backdrop-blur-sm"
+          onClick={() => setVideoViewer(null)}
+        >
+          <div
+            className="w-full max-w-4xl overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 text-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-extrabold text-white">
+                  {videoViewer.title}
+                </div>
+                {videoViewer.subject && (
+                  <div className="text-[11px] text-slate-400">
+                    {videoViewer.subject} · Recorded Live Lecture
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={videoViewer.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download
+                  className="rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-500"
+                >
+                  Download
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setVideoViewer(null)}
+                  className="rounded-xl bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-300 hover:bg-slate-700 hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="bg-black">
+              <video
+                src={videoViewer.url}
+                controls
+                autoPlay
+                playsInline
+                className="max-h-[75dvh] w-full bg-black"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

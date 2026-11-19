@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type MutableRefObject } from "react";
 import { ExternalLink, Video, Radio, Sparkles } from "lucide-react";
 import NativeLiveClassFrame from "@/components/NativeLiveClassFrame";
 
@@ -12,6 +12,8 @@ type MeetFrameProps = {
   subject?: string;
   isTeacher?: boolean;
   onLeave?: () => void;
+  endSignalRef?: MutableRefObject<(() => Promise<void>) | null>;
+  onRecordingPublished?: (url: string, title: string) => void;
 };
 
 /**
@@ -27,6 +29,8 @@ export default function MeetFrame({
   subject,
   isTeacher = false,
   onLeave,
+  endSignalRef,
+  onRecordingPublished,
 }: MeetFrameProps) {
   const url = meetUrl.trim();
   const isGoogleMeet = url.includes("meet.google.com");
@@ -46,11 +50,14 @@ export default function MeetFrame({
     return (
       <NativeLiveClassFrame
         roomName={nativeRoomName}
+        classCode={roomCode}
         displayName={displayName}
         title={title}
         subject={subject}
         isTeacher={isTeacher}
         onLeave={onLeave}
+        endSignalRef={endSignalRef}
+        onRecordingPublished={onRecordingPublished}
       />
     );
   }
